@@ -14,6 +14,13 @@ public class ExcelMergeTool : IExcelAddIn
 
     private List<string> updateFiles = new List<string>();
 
+    // 設定用の変数
+    private string settingsSheetName = "設定シート";
+    private string startAddress = "A1";
+    private string endMarker = "END";
+    private string[] ignoreSheetNames = { "無視シート1", "無視シート2" };
+    private string addressColumn = "B";
+
     public void AutoOpen()
     {
         // リボンのカスタマイズを登録
@@ -26,6 +33,15 @@ public class ExcelMergeTool : IExcelAddIn
 
     public void ShowFileListForm()
     {
+        var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+        var baseWorkbook = excelApp.ActiveWorkbook;
+
+        if (baseWorkbook == null)
+        {
+            MessageBox.Show("ベースブックがありません。");
+            return;
+        }
+
         var form = new Form
         {
             Width = 900, // ウィンドウの幅を3倍に広げる
@@ -79,6 +95,14 @@ public class ExcelMergeTool : IExcelAddIn
             }
         };
 
+        listBox.KeyDown += (sender, e) => {
+            if (e.KeyCode == Keys.Delete && listBox.SelectedItem != null)
+            {
+                updateFiles.Remove(listBox.SelectedItem.ToString());
+                listBox.Items.Remove(listBox.SelectedItem);
+            }
+        };
+
         listBox.AllowDrop = true;
         listBox.DragEnter += (sender, e) => {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
@@ -121,6 +145,9 @@ public class ExcelMergeTool : IExcelAddIn
         var backupFilePath = Path.Combine(Path.GetDirectoryName(baseFilePath),
             $"{Path.GetFileNameWithoutExtension(baseFilePath)}_backup_{DateTime.Now:yyyyMMddHHmmss}.xlsx");
         baseWorkbook.SaveCopyAs(backupFilePath);
+
+        // 設定シートの処理
+        ProcessSettingsSheet(baseWorkbook, settingsSheetName, startAddress, endMarker, ignoreSheetNames, addressColumn);
 
         var mergedData = new Dictionary<string, object>();
 
@@ -167,6 +194,49 @@ public class ExcelMergeTool : IExcelAddIn
         }
 
         baseWorkbook.Save();
+    }
+
+    private void ProcessSettingsSheet(Excel.Workbook workbook, string settingsSheetName, string startAddress, string endMarker, string[] ignoreSheetNames, string addressColumn)
+    {
+        var settingsSheet = workbook.Sheets[settingsSheetName] as Excel.Worksheet;
+        if (settingsSheet == null)
+        {
+            MessageBox.Show($"設定シート '{settingsSheetName}' が見つかりません。");
+            return;
+        }
+
+        var startCell = settingsSheet.Range[startAddress];
+        int startRow = startCell.Row;
+        int addressColumnIndex = settingsSheet.Range[addressColumn + "1"].Column;
+
+        for (int row = startRow; ; row++)
+        {
+            var sheetNameCell = settingsSheet.Cells[row, startCell.Column];
+            var sheetName = sheetNameCell.Value?.ToString();
+
+            if (string.IsNullOrEmpty(sheetName))
+            {
+                continue;
+            }
+
+            if (sheetName == endMarker)
+            {
+                break;
+            }
+
+            if (Array.Exists(ignoreSheetNames, name => name.Equals(sheetName, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            var addressCell = settingsSheet.Cells[row, addressColumnIndex];
+            var address = addressCell.Value?.ToString();
+
+            if (!string.IsNullOrEmpty(sheetName) && !string.IsNullOrEmpty(address))
+            {
+                // シート名とアドレスを使用した処理をここに追加
+            }
+        }
     }
 }
 
