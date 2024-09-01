@@ -1,10 +1,10 @@
-﻿using ExcelDna.Integration;
-using ExcelDna.Integration.CustomUI;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Windows.Forms;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using ExcelDna.Integration;
+using ExcelDna.Integration.CustomUI;
 using Excel = Microsoft.Office.Interop.Excel;
 
 public class ExcelMergeTool : IExcelAddIn
@@ -12,263 +12,481 @@ public class ExcelMergeTool : IExcelAddIn
     private static ExcelMergeTool _instance;
     public static ExcelMergeTool Instance => _instance ?? (_instance = new ExcelMergeTool());
 
-    private List<string> updateFiles = new List<string>();
-
-    // 設定用の変数
-    private string settingsSheetName = "設定シート";
-    private string startAddress = "A1";
-    private string endMarker = "END";
-    private string[] ignoreSheetNames = { "無視シート1", "無視シート2" };
-    private string addressColumn = "B";
+    private List<string> mergeFilePaths = new List<string>();
+    private List<string> conflictCells = new List<string>();
+    private Dictionary<string, List<string>> sheetRanges = new Dictionary<string, List<string>>();
 
     public void AutoOpen()
     {
-        // リボンのカスタマイズを登録
+        // リボンを登録
+        // ExcelDnaUtil.Application.RegisterRibbon(new MyRibbon()); // この行は不要
     }
 
-    public void AutoClose()
+    public void AutoClose() { }
+
+    public void DragDropFiles(object sender, DragEventArgs e)
     {
-        // クリーンアップコード
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            mergeFilePaths.AddRange(files.Where(file => !mergeFilePaths.Contains(file)));
+        }
     }
 
-    public void ShowFileListForm()
+    public void RemoveFile(string filePath)
+    {
+        mergeFilePaths.Remove(filePath);
+    }
+
+    public void OnMergeButtonClick(IRibbonControl control)
+    {
+        // マージ処理を呼び出す
+        MergeFiles(mergeFilePaths);
+    }
+
+    public void OnSelectFilesButtonClick(IRibbonControl control)
+    {
+        // ファイル選択フォームを表示
+        ShowFileSelectionForm();
+    }
+
+    static Dictionary<string, List<string>> CollectSheetAddresses()
+    {
+        const string indexSheetName = "index"; // シート名
+        const string startCellAddress = "B16"; // 開始セルのアドレス
+        const string endMarker = "END"; // 終端を示す文字列
+        const string leftColumnAddress = "U"; // 左端の列のアドレス
+        const string rightColumnAddress = "AA"; // 右端の列のアドレス
+        const string headerRowAddress = "AD"; // ヘッダー行のアドレス
+        const string bottomRowAddress = "AE"; // 最下行のアドレス
+        string[] ignoreSheetNames = { "無視シート", }; // 無視するシート名のリスト
+
+        var result = new Dictionary<string, List<string>>();
+
+        Excel.Application xlApp = (Excel.Application)ExcelDnaUtil.Application;
+        Excel.Worksheet indexSheet = xlApp.Worksheets[indexSheetName];
+        Excel.Range startCell = indexSheet.Range[startCellAddress];
+        Excel.Range currentCell = startCell;
+
+        // 終端を示す文字列が見つかるまで下方向にたどる
+        while (currentCell.Value == null || currentCell.Value.ToString() != endMarker)
+        {
+            currentCell = currentCell.Offset[1, 0];
+        }
+
+        // 範囲を設定
+        Excel.Range range = indexSheet.Range[startCell, currentCell.Offset[-1, 0]];
+
+        foreach (Excel.Range cell in range)
+        {
+            if (cell.Value != null && !string.IsNullOrEmpty(cell.Value.ToString()))
+            {
+                string sheetName = cell.Value.ToString();
+
+                // 無視リストに含まれるシート名をスキップ
+                if (Array.Exists(ignoreSheetNames, name => name.Equals(sheetName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                Excel.Worksheet sheet = xlApp.Worksheets[sheetName];
+
+                string leftColumn = indexSheet.Cells[cell.Row, leftColumnAddress].Value.ToString();
+                string rightColumn = indexSheet.Cells[cell.Row, rightColumnAddress].Value.ToString();
+                int headerRow = (int)indexSheet.Cells[cell.Row, headerRowAddress].Value;
+                int topRow = headerRow + 1;
+                int bottomRow = (int)indexSheet.Cells[cell.Row, bottomRowAddress].Value;
+
+                string address = $"{leftColumn}{topRow}:{rightColumn}{bottomRow}";
+
+                // シート名が辞書に存在しない場合、新しいリストを作成
+                if (!result.ContainsKey(sheetName))
+                {
+                    result[sheetName] = new List<string>();
+                }
+
+                // アドレスをリストに追加
+                result[sheetName].Add(address);
+            }
+        }
+
+        return result;
+    }
+
+    public void MergeFiles(List<string> mergeFilePaths)
+    {
+        // 現在のアクティブなブックを取得
+        var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+        var baseWorkbook = excelApp.ActiveWorkbook;
+
+        // アクティブなブックがない場合の処理
+        if (baseWorkbook == null)
+        {
+            MessageBox.Show("アクティブなブックがありません。操作を続行するにはブックを開いてください。", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+            return;
+        }
+
+        if (mergeFilePaths.Count == 0)
+        {
+            MessageBox.Show("マージするファイルが選択されていません。", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+            return;
+        }
+
+        sheetRanges = CollectSheetAddresses();
+
+        // 各セルの値を保持する辞書
+        var cellValues = new Dictionary<Tuple<string, int, int>, List<string>>();
+        var cellSources = new Dictionary<Tuple<string, int, int>, List<string>>();
+        var baseValuesDict = new Dictionary<Tuple<string, string>, object[,]>();
+
+        // ベースシートの値を収集
+        foreach (var sheetName in sheetRanges.Keys)
+        {
+            var baseSheet = baseWorkbook.Sheets[sheetName];
+
+            foreach (var rangeAddress in sheetRanges[sheetName])
+            {
+                var baseRange = baseSheet.Range[rangeAddress];
+                var baseValues = baseRange.Value2 as object[,];
+                var key = Tuple.Create(sheetName, rangeAddress);
+                baseValuesDict[key] = baseValues;
+            }
+        }
+
+        foreach (var mergeFilePath in mergeFilePaths)
+        {
+            var mergeWorkbook = excelApp.Workbooks.Open(mergeFilePath);
+
+            foreach (var sheetName in sheetRanges.Keys)
+            {
+                var mergeSheet = mergeWorkbook.Sheets[sheetName];
+
+                foreach (var rangeAddress in sheetRanges[sheetName])
+                {
+                    var mergeRange = mergeSheet.Range[rangeAddress];
+                    var mergeValues = mergeRange.Value2 as object[,];
+                    var key = Tuple.Create(sheetName, rangeAddress);
+                    var baseValues = baseValuesDict[key];
+
+                    // 各セルの値を収集
+                    for (int row = 1; row <= mergeValues.GetLength(0); row++)
+                    {
+                        for (int col = 1; col <= mergeValues.GetLength(1); col++)
+                        {
+                            var mergeValue = mergeValues[row, col]?.ToString() ?? "";
+                            var baseValue = baseValues[row, col]?.ToString() ?? "";
+
+                            if (mergeValue != baseValue)
+                            {
+                                var cellKey = Tuple.Create(sheetName, row, col);
+
+                                if (!cellValues.ContainsKey(cellKey))
+                                {
+                                    cellValues[cellKey] = new List<string>();
+                                    cellSources[cellKey] = new List<string>();
+                                }
+
+                                if (!cellValues[cellKey].Contains(mergeValue))
+                                {
+                                    cellValues[cellKey].Add(mergeValue);
+                                    cellSources[cellKey].Add($"{mergeFilePaths.IndexOf(mergeFilePath) + 1}: {mergeValue}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            mergeWorkbook.Close(false);
+        }
+
+        // 競合をチェックしてマージ
+        foreach (var sheetName in sheetRanges.Keys)
+        {
+            var baseSheet = baseWorkbook.Sheets[sheetName];
+
+            foreach (var rangeAddress in sheetRanges[sheetName])
+            {
+                var baseRange = baseSheet.Range[rangeAddress];
+                var baseValues = baseValuesDict[Tuple.Create(sheetName, rangeAddress)];
+
+                for (int row = 1; row <= baseValues.GetLength(0); row++)
+                {
+                    for (int col = 1; col <= baseValues.GetLength(1); col++)
+                    {
+                        var baseValue = baseValues[row, col]?.ToString() ?? "";
+                        var key = Tuple.Create(sheetName, row, col);
+
+                        if (cellValues.ContainsKey(key))
+                        {
+                            var values = cellValues[key];
+                            if (values.Count == 1)
+                            {
+                                baseValues[row, col] = values[0];
+                            }
+                            else if (values.Count > 1)
+                            {
+                                var uniqueValues = new HashSet<string>(values);
+                                if (uniqueValues.Count > 1)
+                                {
+                                    baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", cellSources[key]);
+                                    conflictCells.Add($"{sheetName}: {baseRange.Cells[row, col].Address}");
+                                }
+                                else
+                                {
+                                    baseValues[row, col] = values[0];
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 変更をシートに反映
+                baseRange.Value2 = baseValues;
+            }
+        }
+
+        baseWorkbook.Save();
+
+        // 競合があった場合にウィンドウを表示
+        if (conflictCells.Count > 0)
+        {
+            ShowConflictWindow();
+        }
+    }
+
+    private void ShowConflictWindow()
+    {
+        Form conflictForm = new Form
+        {
+            Text = "競合がありました",
+            Width = 400,
+            Height = 300,
+            TopMost = true // topmostに設定
+        };
+
+        ListBox conflictListBox = new ListBox
+        {
+            Dock = DockStyle.Fill
+        };
+
+        foreach (var cell in conflictCells)
+        {
+            conflictListBox.Items.Add(cell);
+        }
+
+        conflictListBox.DoubleClick += (sender, e) =>
+        {
+            if (conflictListBox.SelectedItem != null)
+            {
+                var selectedCell = conflictListBox.SelectedItem.ToString();
+                var parts = selectedCell.Split(':');
+                var sheetName = parts[0].Trim();
+                var cellAddress = parts[1].Trim();
+
+                var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+                var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
+                var range = sheet.Range[cellAddress];
+                sheet.Activate();
+                range.Select();
+            }
+        };
+
+        conflictForm.Controls.Add(conflictListBox);
+        conflictForm.Show();
+    }
+
+    private void ShowFileSelectionForm()
     {
         var excelApp = (Excel.Application)ExcelDnaUtil.Application;
         var baseWorkbook = excelApp.ActiveWorkbook;
 
         if (baseWorkbook == null)
         {
-            MessageBox.Show("ベースブックがありません。");
+            MessageBox.Show("先にブックを開いてください。");
             return;
         }
 
-        var form = new Form
+        Form fileSelectionForm = new Form
         {
-            Width = 900, // ウィンドウの幅を3倍に広げる
-            Height = 600
+            Text = "ファイル選択",
+            Width = 1200, // 幅を2倍に設定
+            Height = 530, // 高さを調整
         };
-        var addButton = new Button
+
+        ListBox fileListBox = new ListBox
+        {
+            Dock = DockStyle.Top,
+            Height = 300,
+            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
+        };
+
+        Button addButton = new Button
         {
             Text = "追加",
-            Top = 10,
-            Left = 10,
-            Width = 200, // ボタンの幅を2倍に
-            Height = 60, // ボタンの高さを2倍に
-            Font = new System.Drawing.Font("Microsoft Sans Serif", 16) // 文字サイズを2倍に
+            Dock = DockStyle.Top,
+            Height = 60,
+            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
         };
-        var removeButton = new Button
+
+        Button removeButton = new Button
         {
             Text = "削除",
-            Top = 80,
-            Left = 10,
-            Width = 200, // ボタンの幅を2倍に
-            Height = 60, // ボタンの高さを2倍に
-            Font = new System.Drawing.Font("Microsoft Sans Serif", 16) // 文字サイズを2倍に
-        };
-        var listBox = new ListBox
-        {
-            Top = 150,
-            Left = 10,
-            Width = 860, // リストボックスの幅をウィンドウに合わせる
-            Height = 400,
-            Font = new System.Drawing.Font("Microsoft Sans Serif", 16) // 文字サイズを2倍に
+            Dock = DockStyle.Top,
+            Height = 60,
+            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
         };
 
-        addButton.Click += (sender, e) => {
-            var openFileDialog = new OpenFileDialog();
+        Button closeButton = new Button
+        {
+            Text = "閉じる",
+            Dock = DockStyle.Top,
+            Height = 60,
+            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
+        };
+
+        fileSelectionForm.Controls.Add(closeButton);
+        fileSelectionForm.Controls.Add(removeButton);
+        fileSelectionForm.Controls.Add(addButton);
+        fileSelectionForm.Controls.Add(fileListBox);
+
+        // 既存のファイルをリストボックスに追加
+        UpdateFileListBox(fileListBox);
+
+        addButton.Click += (sender, e) =>
+        {
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                Multiselect = true,
+                Filter = "Excel Files|*.xls;*.xlsx;*.xlsm"
+            };
+
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
-                var filePath = openFileDialog.FileName;
-                if (!updateFiles.Contains(filePath))
+                var baseWorkbookPath = excelApp.ActiveWorkbook.FullName;
+
+                foreach (string file in openFileDialog.FileNames)
                 {
-                    updateFiles.Add(filePath);
-                    listBox.Items.Add(filePath);
+                    if (!mergeFilePaths.Contains(file) && file != baseWorkbookPath)
+                    {
+                        mergeFilePaths.Add(file);
+                        UpdateFileListBox(fileListBox);
+                    }
                 }
             }
         };
 
-        removeButton.Click += (sender, e) => {
-            if (listBox.SelectedItem != null)
+        removeButton.Click += (sender, e) =>
+        {
+            RemoveSelectedItems(fileListBox);
+            UpdateFileListBox(fileListBox);
+        };
+
+        closeButton.Click += (sender, e) =>
+        {
+            fileSelectionForm.Close();
+        };
+
+        // リストボックスにドラッグアンドドロップを有効にする
+        fileListBox.AllowDrop = true;
+        fileListBox.DragEnter += new DragEventHandler(Form_DragEnter);
+        fileListBox.DragDrop += new DragEventHandler(Form_DragDrop);
+
+        // KeyDownイベントを追加
+        fileListBox.KeyDown += (sender, e) =>
+        {
+            if (e.KeyCode == Keys.Delete)
             {
-                updateFiles.Remove(listBox.SelectedItem.ToString());
-                listBox.Items.Remove(listBox.SelectedItem);
+                RemoveSelectedItems(fileListBox);
+                UpdateFileListBox(fileListBox);
             }
         };
 
-        listBox.KeyDown += (sender, e) => {
-            if (e.KeyCode == Keys.Delete && listBox.SelectedItem != null)
+        // ESCキーでフォームを閉じる
+        fileSelectionForm.KeyPreview = true;
+        fileSelectionForm.KeyDown += (sender, e) =>
+        {
+            if (e.KeyCode == Keys.Escape)
             {
-                updateFiles.Remove(listBox.SelectedItem.ToString());
-                listBox.Items.Remove(listBox.SelectedItem);
+                fileSelectionForm.Close();
             }
         };
 
-        listBox.AllowDrop = true;
-        listBox.DragEnter += (sender, e) => {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                e.Effect = DragDropEffects.Copy;
-            }
-        };
-        listBox.DragDrop += (sender, e) => {
-            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            foreach (var file in files)
-            {
-                if ((Path.GetExtension(file).Equals(".xlsx", StringComparison.OrdinalIgnoreCase) ||
-                     Path.GetExtension(file).Equals(".xlsm", StringComparison.OrdinalIgnoreCase)) &&
-                    !updateFiles.Contains(file))
-                {
-                    updateFiles.Add(file);
-                    listBox.Items.Add(file);
-                }
-            }
-        };
-
-        form.Controls.Add(addButton);
-        form.Controls.Add(removeButton);
-        form.Controls.Add(listBox);
-        form.ShowDialog();
+        fileSelectionForm.ShowDialog();
     }
 
-    public void MergeExcelFiles()
+    private void UpdateFileListBox(ListBox fileListBox)
     {
+        fileListBox.Items.Clear();
+        for (int i = 0; i < mergeFilePaths.Count; i++)
+        {
+            fileListBox.Items.Add($"{i + 1}. {mergeFilePaths[i]}");
+        }
+    }
+
+    private void RemoveSelectedItems(ListBox fileListBox)
+    {
+        var selectedItems = fileListBox.SelectedItems.Cast<string>().ToList();
+        foreach (var item in selectedItems)
+        {
+            var filePath = item.Substring(item.IndexOf(' ') + 1); // インデックスを除去してファイルパスを取得
+            mergeFilePaths.Remove(filePath);
+            fileListBox.Items.Remove(item);
+        }
+    }
+
+    private void Form_DragEnter(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effect = DragDropEffects.Copy;
+        }
+    }
+
+    private void Form_DragDrop(object sender, DragEventArgs e)
+    {
+        var files = (string[])e.Data.GetData(DataFormats.FileDrop);
         var excelApp = (Excel.Application)ExcelDnaUtil.Application;
-        var baseWorkbook = excelApp.ActiveWorkbook;
-        var baseFilePath = baseWorkbook.FullName;
-
-        if (string.IsNullOrEmpty(baseFilePath))
+        var baseWorkbookPath = excelApp.ActiveWorkbook.FullName;
+        foreach (var file in files)
         {
-            MessageBox.Show("ベースブックを保存してください。");
-            return;
-        }
-
-        var backupFilePath = Path.Combine(Path.GetDirectoryName(baseFilePath),
-            $"{Path.GetFileNameWithoutExtension(baseFilePath)}_backup_{DateTime.Now:yyyyMMddHHmmss}.xlsx");
-        baseWorkbook.SaveCopyAs(backupFilePath);
-
-        // 設定シートの処理
-        ProcessSettingsSheet(baseWorkbook, settingsSheetName, startAddress, endMarker, ignoreSheetNames, addressColumn);
-
-        var mergedData = new Dictionary<string, object>();
-
-        foreach (var file in updateFiles)
-        {
-            var updateWorkbook = excelApp.Workbooks.Open(file);
-            foreach (Excel.Worksheet sheet in updateWorkbook.Sheets)
+            if (!mergeFilePaths.Contains(file) && file != baseWorkbookPath)
             {
-                foreach (Excel.Range cell in sheet.UsedRange)
-                {
-                    var key = $"{sheet.Name}!{cell.Address}";
-                    if (!mergedData.ContainsKey(key))
-                    {
-                        mergedData[key] = cell.Value;
-                    }
-                    else
-                    {
-                        // 競合処理
-                        if (!mergedData[key].Equals(cell.Value))
-                        {
-                            MessageBox.Show($"競合検出: {key}");
-                        }
-                    }
-                }
-            }
-            updateWorkbook.Close(false);
-        }
-
-        // マージ結果をベースブックに反映
-        foreach (var kvp in mergedData)
-        {
-            var parts = kvp.Key.Split('!');
-            var sheetName = parts[0];
-            var cellAddress = parts[1];
-
-            var sheet = baseWorkbook.Sheets[sheetName] as Excel.Worksheet;
-            if (sheet == null)
-            {
-                sheet = (Excel.Worksheet)baseWorkbook.Sheets.Add(After: baseWorkbook.Sheets[baseWorkbook.Sheets.Count]);
-                sheet.Name = sheetName;
-            }
-
-            sheet.Range[cellAddress].Value = kvp.Value;
-        }
-
-        baseWorkbook.Save();
-    }
-
-    private void ProcessSettingsSheet(Excel.Workbook workbook, string settingsSheetName, string startAddress, string endMarker, string[] ignoreSheetNames, string addressColumn)
-    {
-        var settingsSheet = workbook.Sheets[settingsSheetName] as Excel.Worksheet;
-        if (settingsSheet == null)
-        {
-            MessageBox.Show($"設定シート '{settingsSheetName}' が見つかりません。");
-            return;
-        }
-
-        var startCell = settingsSheet.Range[startAddress];
-        int startRow = startCell.Row;
-        int addressColumnIndex = settingsSheet.Range[addressColumn + "1"].Column;
-
-        for (int row = startRow; ; row++)
-        {
-            var sheetNameCell = settingsSheet.Cells[row, startCell.Column];
-            var sheetName = sheetNameCell.Value?.ToString();
-
-            if (string.IsNullOrEmpty(sheetName))
-            {
-                continue;
-            }
-
-            if (sheetName == endMarker)
-            {
-                break;
-            }
-
-            if (Array.Exists(ignoreSheetNames, name => name.Equals(sheetName, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
-
-            var addressCell = settingsSheet.Cells[row, addressColumnIndex];
-            var address = addressCell.Value?.ToString();
-
-            if (!string.IsNullOrEmpty(sheetName) && !string.IsNullOrEmpty(address))
-            {
-                // シート名とアドレスを使用した処理をここに追加
+                mergeFilePaths.Add(file);
             }
         }
+        UpdateFileListBox((ListBox)sender);
     }
 }
 
 [ComVisible(true)]
-public class CustomRibbon : ExcelRibbon
+public class MyRibbon : ExcelRibbon
 {
-    private const string ribbonXml = @"
+    public override string GetCustomUI(string ribbonID)
+    {
+        return @"
 <customUI xmlns='http://schemas.microsoft.com/office/2009/07/customui'>
   <ribbon>
     <tabs>
       <tab id='customTab' label='マージツール'>
         <group id='customGroup' label='操作'>
-          <button id='selectFilesButton' label='ファイル選択' onAction='SelectFiles' />
-          <button id='mergeFilesButton' label='マージ' onAction='MergeFiles' />
+          <button id='selectFilesButton' label='ファイル選択' onAction='OnSelectFilesButtonClick' />
+          <button id='mergeButton' label='マージ' onAction='OnMergeButtonClick' />
         </group>
       </tab>
     </tabs>
   </ribbon>
 </customUI>";
-
-    public override string GetCustomUI(string ribbonID)
-    {
-        return ribbonXml;
     }
 
-    public void SelectFiles(IRibbonControl control)
+    public void OnMergeButtonClick(IRibbonControl control)
     {
-        ExcelMergeTool.Instance.ShowFileListForm();
+        // マージ処理を呼び出す
+        ExcelMergeTool.Instance.OnMergeButtonClick(control);
     }
 
-    public void MergeFiles(IRibbonControl control)
+    public void OnSelectFilesButtonClick(IRibbonControl control)
     {
-        ExcelMergeTool.Instance.MergeExcelFiles();
+        // ファイル選択処理を呼び出す
+        ExcelMergeTool.Instance.OnSelectFilesButtonClick(control);
     }
 }
