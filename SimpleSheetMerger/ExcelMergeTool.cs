@@ -116,6 +116,18 @@ public class ExcelMergeTool : IExcelAddIn
         return result;
     }
 
+    static dynamic GetSheetIfExists(Excel.Workbook workbook, string sheetName)
+    {
+        foreach (Excel.Worksheet sheet in workbook.Sheets)
+        {
+            if (sheet.Name == sheetName)
+            {
+                return sheet;
+            }
+        }
+        return null;
+    }
+
     public void MergeFiles(List<string> mergeFilePaths)
     {
         // 現在のアクティブなブックを取得
@@ -163,7 +175,12 @@ public class ExcelMergeTool : IExcelAddIn
 
             foreach (var sheetName in sheetRanges.Keys)
             {
-                var mergeSheet = mergeWorkbook.Sheets[sheetName];
+                var mergeSheet = GetSheetIfExists(mergeWorkbook, sheetName);
+
+                if (mergeSheet == null)
+                {
+                    continue;
+                }
 
                 foreach (var rangeTuple in sheetRanges[sheetName])
                 {
