@@ -14,7 +14,8 @@ public class ExcelMergeTool : IExcelAddIn
 
     private List<string> mergeFilePaths = new List<string>();
     private List<string> conflictCells = new List<string>();
-    private Dictionary<string, List<string>> sheetRanges = new Dictionary<string, List<string>>();
+    private Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> sheetRanges = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
+
 
     public void AutoOpen()
     {
@@ -50,7 +51,7 @@ public class ExcelMergeTool : IExcelAddIn
         ShowFileSelectionForm();
     }
 
-    static Dictionary<string, List<string>> CollectSheetAddresses()
+    static Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> CollectSheetAddresses()
     {
         const string indexSheetName = "index"; // シート名
         const string startCellAddress = "B16"; // 開始セルのアドレス
@@ -61,7 +62,7 @@ public class ExcelMergeTool : IExcelAddIn
         const string bottomRowAddress = "AE"; // 最下行のアドレス
         string[] ignoreSheetNames = { "無視シート", }; // 無視するシート名のリスト
 
-        var result = new Dictionary<string, List<string>>();
+        var result = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
 
         Excel.Application xlApp = (Excel.Application)ExcelDnaUtil.Application;
         Excel.Worksheet indexSheet = xlApp.Worksheets[indexSheetName];
@@ -102,11 +103,13 @@ public class ExcelMergeTool : IExcelAddIn
                 // シート名が辞書に存在しない場合、新しいリストを作成
                 if (!result.ContainsKey(sheetName))
                 {
-                    result[sheetName] = new List<string>();
+                    result[sheetName] = new List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>();
                 }
 
                 // アドレスをリストに追加
-                result[sheetName].Add(address);
+                var rangeTuple = Tuple.Create(address, (Func<string, string[], Tuple<bool, string>>)null);
+
+                result[sheetName].Add(rangeTuple);
             }
         }
 
@@ -144,8 +147,9 @@ public class ExcelMergeTool : IExcelAddIn
         {
             var baseSheet = baseWorkbook.Sheets[sheetName];
 
-            foreach (var rangeAddress in sheetRanges[sheetName])
+            foreach (var rangeTuple in sheetRanges[sheetName])
             {
+                var rangeAddress = rangeTuple.Item1;
                 var baseRange = baseSheet.Range[rangeAddress];
                 var baseValues = baseRange.Value2 as object[,];
                 var key = Tuple.Create(sheetName, rangeAddress);
@@ -161,8 +165,9 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 var mergeSheet = mergeWorkbook.Sheets[sheetName];
 
-                foreach (var rangeAddress in sheetRanges[sheetName])
+                foreach (var rangeTuple in sheetRanges[sheetName])
                 {
+                    var rangeAddress = rangeTuple.Item1;
                     var mergeRange = mergeSheet.Range[rangeAddress];
                     var mergeValues = mergeRange.Value2 as object[,];
                     var key = Tuple.Create(sheetName, rangeAddress);
@@ -204,8 +209,10 @@ public class ExcelMergeTool : IExcelAddIn
         {
             var baseSheet = baseWorkbook.Sheets[sheetName];
 
-            foreach (var rangeAddress in sheetRanges[sheetName])
+            foreach (var rangeTuple in sheetRanges[sheetName])
             {
+                var rangeAddress = rangeTuple.Item1;
+                var mergeFunc = rangeTuple.Item2;
                 var baseRange = baseSheet.Range[rangeAddress];
                 var baseValues = baseValuesDict[Tuple.Create(sheetName, rangeAddress)];
 
@@ -228,6 +235,16 @@ public class ExcelMergeTool : IExcelAddIn
                                 var uniqueValues = new HashSet<string>(values);
                                 if (uniqueValues.Count > 1)
                                 {
+                                    if (mergeFunc != null)
+                                    {
+                                        var mergeResult = mergeFunc(baseValue, values.ToArray());
+                                        if (mergeResult.Item1)
+                                        {
+                                            baseValues[row, col] = mergeResult.Item2;
+                                            continue;
+                                        }
+                                    }
+                                    // mergeFunc が null またはマージに失敗した場合
                                     baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", cellSources[key]);
                                     conflictCells.Add($"{sheetName}: {baseRange.Cells[row, col].Address}");
                                 }
