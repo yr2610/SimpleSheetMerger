@@ -51,6 +51,19 @@ public class ExcelMergeTool : IExcelAddIn
         ShowFileSelectionForm();
     }
 
+    static Excel.Name GetNamedRange(Excel.Worksheet sheet, string name)
+    {
+        try
+        {
+            Excel.Name namedRange = sheet.Names.Item(name);
+            return namedRange;
+        }
+        catch (Exception)
+        {
+            return null; // エラーが発生した場合は null を返します
+        }
+    }
+
     static Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> CollectSheetAddresses()
     {
         const string indexSheetName = "index"; // シート名
@@ -60,6 +73,7 @@ public class ExcelMergeTool : IExcelAddIn
         const string rightColumnAddress = "AA"; // 右端の列のアドレス
         const string headerRowAddress = "AD"; // ヘッダー行のアドレス
         const string bottomRowAddress = "AE"; // 最下行のアドレス
+        const string ssSheetRangeName = "SS_SHEET"; // 名前付き範囲の名前
         string[] ignoreSheetNames = { "無視シート", }; // 無視するシート名のリスト
 
         var result = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
@@ -91,14 +105,25 @@ public class ExcelMergeTool : IExcelAddIn
                 }
 
                 Excel.Worksheet sheet = xlApp.Worksheets[sheetName];
+                Excel.Name namedRange = GetNamedRange(sheet, ssSheetRangeName);
+                
+                string address;
+                if (namedRange != null)
+                {
+                    // 名前付き範囲が存在する場合、その範囲を使用
+                    address = namedRange.RefersToRange.Address;
+                }
+                else
+                {
+                    // 名前付き範囲が存在しない場合、indexSheet の情報からアドレスを作成
+                    string leftColumn = indexSheet.Cells[cell.Row, leftColumnAddress].Value.ToString();
+                    string rightColumn = indexSheet.Cells[cell.Row, rightColumnAddress].Value.ToString();
+                    int headerRow = (int)indexSheet.Cells[cell.Row, headerRowAddress].Value;
+                    int topRow = headerRow + 1;
+                    int bottomRow = (int)indexSheet.Cells[cell.Row, bottomRowAddress].Value;
 
-                string leftColumn = indexSheet.Cells[cell.Row, leftColumnAddress].Value.ToString();
-                string rightColumn = indexSheet.Cells[cell.Row, rightColumnAddress].Value.ToString();
-                int headerRow = (int)indexSheet.Cells[cell.Row, headerRowAddress].Value;
-                int topRow = headerRow + 1;
-                int bottomRow = (int)indexSheet.Cells[cell.Row, bottomRowAddress].Value;
-
-                string address = $"{leftColumn}{topRow}:{rightColumn}{bottomRow}";
+                    address = $"{leftColumn}{topRow}:{rightColumn}{bottomRow}";
+                }
 
                 // シート名が辞書に存在しない場合、新しいリストを作成
                 if (!result.ContainsKey(sheetName))
