@@ -6,6 +6,8 @@ using System.Windows.Forms;
 using ExcelDna.Integration;
 using ExcelDna.Integration.CustomUI;
 using Excel = Microsoft.Office.Interop.Excel;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 public class ExcelMergeTool : IExcelAddIn
 {
@@ -14,8 +16,19 @@ public class ExcelMergeTool : IExcelAddIn
 
     private List<string> mergeFilePaths = new List<string>();
     private List<string> conflictCells = new List<string>();
-    private Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> sheetRanges = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
+    //private Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> sheetRanges = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
 
+    class RangeInfo
+    {
+        public int IdColumnOffset { get; set; }
+    }
+
+    class SheetAddressInfo
+    {
+        public string Address { get; set; }
+        public Func<string, string[], Tuple<bool, string>> Function { get; set; }
+        public RangeInfo RangeInfo { get; set; }
+    }
 
     public void AutoOpen()
     {
@@ -64,7 +77,7 @@ public class ExcelMergeTool : IExcelAddIn
         }
     }
 
-    static Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> CollectSheetAddresses()
+    static Dictionary<string, List<SheetAddressInfo>> CollectSheetAddresses()
     {
         const string indexSheetName = "index"; // シート名
         const string startCellAddress = "B16"; // 開始セルのアドレス
@@ -76,7 +89,7 @@ public class ExcelMergeTool : IExcelAddIn
         const string ssSheetRangeName = "SS_SHEET"; // 名前付き範囲の名前
         string[] ignoreSheetNames = { "無視シート", }; // 無視するシート名のリスト
 
-        var result = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
+        var result = new Dictionary<string, List<SheetAddressInfo>>();
 
         Excel.Application xlApp = (Excel.Application)ExcelDnaUtil.Application;
         Excel.Worksheet indexSheet = xlApp.Worksheets[indexSheetName];
@@ -106,12 +119,22 @@ public class ExcelMergeTool : IExcelAddIn
 
                 Excel.Worksheet sheet = xlApp.Worksheets[sheetName];
                 Excel.Name namedRange = GetNamedRange(sheet, ssSheetRangeName);
-                
+
                 string address;
+                RangeInfo rangeInfo = null;
                 if (namedRange != null)
                 {
                     // 名前付き範囲が存在する場合、その範囲を使用
                     address = namedRange.RefersToRange.Address;
+
+                    // コメントが存在する場合、それを YAML として解析
+                    if (namedRange.Comment != null)
+                    {
+                        var deserializer = new DeserializerBuilder()
+                            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                            .Build();
+                        rangeInfo = deserializer.Deserialize<RangeInfo>(namedRange.Comment);
+                    }
                 }
                 else
                 {
@@ -128,13 +151,18 @@ public class ExcelMergeTool : IExcelAddIn
                 // シート名が辞書に存在しない場合、新しいリストを作成
                 if (!result.ContainsKey(sheetName))
                 {
-                    result[sheetName] = new List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>();
+                    result[sheetName] = new List<SheetAddressInfo>();
                 }
 
                 // アドレスをリストに追加
-                var rangeTuple = Tuple.Create(address, (Func<string, string[], Tuple<bool, string>>)null);
+                var sheetAddressInfo = new SheetAddressInfo
+                {
+                    Address = address,
+                    Function = null,
+                    RangeInfo = rangeInfo
+                };
 
-                result[sheetName].Add(rangeTuple);
+                result[sheetName].Add(sheetAddressInfo);
             }
         }
 
@@ -172,7 +200,7 @@ public class ExcelMergeTool : IExcelAddIn
             return;
         }
 
-        sheetRanges = CollectSheetAddresses();
+        var sheetRanges = CollectSheetAddresses();
 
         // 各セルの値を保持する辞書
         var cellValues = new Dictionary<Tuple<string, int, int>, List<string>>();
@@ -184,9 +212,9 @@ public class ExcelMergeTool : IExcelAddIn
         {
             var baseSheet = baseWorkbook.Sheets[sheetName];
 
-            foreach (var rangeTuple in sheetRanges[sheetName])
+            foreach (var sheetRange in sheetRanges[sheetName])
             {
-                var rangeAddress = rangeTuple.Item1;
+                var rangeAddress = sheetRange.Address;
                 var baseRange = baseSheet.Range[rangeAddress];
                 var baseValues = baseRange.Value2 as object[,];
                 var key = Tuple.Create(sheetName, rangeAddress);
@@ -207,9 +235,9 @@ public class ExcelMergeTool : IExcelAddIn
                     continue;
                 }
 
-                foreach (var rangeTuple in sheetRanges[sheetName])
+                foreach (var sheetRange in sheetRanges[sheetName])
                 {
-                    var rangeAddress = rangeTuple.Item1;
+                    var rangeAddress = sheetRange.Address;
                     var mergeRange = mergeSheet.Range[rangeAddress];
                     var mergeValues = mergeRange.Value2 as object[,];
                     var key = Tuple.Create(sheetName, rangeAddress);
@@ -253,8 +281,8 @@ public class ExcelMergeTool : IExcelAddIn
 
             foreach (var rangeTuple in sheetRanges[sheetName])
             {
-                var rangeAddress = rangeTuple.Item1;
-                var mergeFunc = rangeTuple.Item2;
+                var rangeAddress = rangeTuple.Address;
+                var mergeFunc = rangeTuple.Function;
                 var baseRange = baseSheet.Range[rangeAddress];
                 var baseValues = baseValuesDict[Tuple.Create(sheetName, rangeAddress)];
 
