@@ -64,6 +64,18 @@ public class ExcelMergeTool : IExcelAddIn
         ShowFileSelectionForm();
     }
 
+    static dynamic GetSheetIfExists(Excel.Workbook workbook, string sheetName)
+    {
+        foreach (Excel.Worksheet sheet in workbook.Sheets)
+        {
+            if (sheet.Name == sheetName)
+            {
+                return sheet;
+            }
+        }
+        return null;
+    }
+
     static Excel.Name GetNamedRange(Excel.Worksheet sheet, string name)
     {
         try
@@ -167,18 +179,6 @@ public class ExcelMergeTool : IExcelAddIn
         }
 
         return result;
-    }
-
-    static dynamic GetSheetIfExists(Excel.Workbook workbook, string sheetName)
-    {
-        foreach (Excel.Worksheet sheet in workbook.Sheets)
-        {
-            if (sheet.Name == sheetName)
-            {
-                return sheet;
-            }
-        }
-        return null;
     }
 
     public void MergeFiles(List<string> mergeFilePaths)
