@@ -268,7 +268,7 @@ public class ExcelMergeTool : IExcelAddIn
                 IEnumerable<object> idValues = null;
                 var key = Tuple.Create(sheetName, rangeAddress);
 
-                if (sheetRange.RangeInfo != null && sheetRange.RangeInfo.IdColumnOffset.HasValue)
+                if (sheetRange.RangeInfo?.IdColumnOffset != null)
                 {
                     idValues = GetColumnWithOffset(baseSheet, rangeAddress, sheetRange.RangeInfo.IdColumnOffset.Value);
                 }
@@ -310,18 +310,15 @@ public class ExcelMergeTool : IExcelAddIn
                             return null;
                         }
                         SheetAddressInfo mergeSheetAddressInfo = GetSheetAddressInfo(mergeSheet);
-                        if (mergeSheetAddressInfo == null)
+                        var rangeInfo = mergeSheetAddressInfo?.RangeInfo;
+                        if (rangeInfo == null)
                         {
                             return null;
                         }
-                        if (mergeSheetAddressInfo.RangeInfo == null)
+                        var idColumnOffset = rangeInfo.IdColumnOffset;
+                        if (!idColumnOffset.HasValue)
                         {
                             return null;
-                        }
-                        var idColumnOffset = mergeSheetAddressInfo.RangeInfo.IdColumnOffset;
-                        if (idColumnOffset.HasValue)
-                        {
-
                         }
                         return null;
                     }
