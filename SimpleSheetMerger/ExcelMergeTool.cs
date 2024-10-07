@@ -20,7 +20,15 @@ public class ExcelMergeTool : IExcelAddIn
 
     class RangeInfo
     {
-        public int IdColumnOffset { get; set; }
+        public int? IdColumnOffset { get; set; }
+        public IEnumerable<int> IgnoreColumnOffsets { get; set; }
+    }
+
+    class RangeData
+    {
+        public object[,] Values { get; set; }
+        public IEnumerable<object> IdValues { get; set; }
+        public IEnumerable<int> IgnoreColumnOffsets { get; set; }
     }
 
     class SheetAddressInfo
@@ -89,6 +97,37 @@ public class ExcelMergeTool : IExcelAddIn
         }
     }
 
+    static SheetAddressInfo GetSheetAddressInfo(Excel.Worksheet sheet)
+    {
+        const string ssSheetRangeName = "SS_SHEET"; // 名前付き範囲の名前
+        Excel.Name namedRange = GetNamedRange(sheet, ssSheetRangeName);
+
+        if (namedRange == null)
+        {
+            return null;
+        }
+
+        // 名前付き範囲が存在する場合、その範囲を使用
+        string address = namedRange.RefersToRange.Address;
+        RangeInfo rangeInfo = null;
+
+        // コメントが存在する場合、それを YAML として解析
+        if (namedRange.Comment != null)
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .Build();
+            rangeInfo = deserializer.Deserialize<RangeInfo>(namedRange.Comment);
+        }
+
+        return new SheetAddressInfo
+        {
+            Address = address,
+            Function = null,
+            RangeInfo = rangeInfo
+        };
+    }
+
     static Dictionary<string, List<SheetAddressInfo>> CollectSheetAddresses()
     {
         const string indexSheetName = "index"; // シート名
@@ -98,7 +137,6 @@ public class ExcelMergeTool : IExcelAddIn
         const string rightColumnAddress = "AA"; // 右端の列のアドレス
         const string headerRowAddress = "AD"; // ヘッダー行のアドレス
         const string bottomRowAddress = "AE"; // 最下行のアドレス
-        const string ssSheetRangeName = "SS_SHEET"; // 名前付き範囲の名前
         string[] ignoreSheetNames = { "無視シート", }; // 無視するシート名のリスト
 
         var result = new Dictionary<string, List<SheetAddressInfo>>();
@@ -130,34 +168,24 @@ public class ExcelMergeTool : IExcelAddIn
                 }
 
                 Excel.Worksheet sheet = xlApp.Worksheets[sheetName];
-                Excel.Name namedRange = GetNamedRange(sheet, ssSheetRangeName);
+                var sheetAddressInfo = GetSheetAddressInfo(sheet);
 
-                string address;
-                RangeInfo rangeInfo = null;
-                if (namedRange != null)
+                // 名前付き範囲が存在しない場合、indexSheet の情報からアドレスを作成
+                if (sheetAddressInfo == null)
                 {
-                    // 名前付き範囲が存在する場合、その範囲を使用
-                    address = namedRange.RefersToRange.Address;
-
-                    // コメントが存在する場合、それを YAML として解析
-                    if (namedRange.Comment != null)
-                    {
-                        var deserializer = new DeserializerBuilder()
-                            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                            .Build();
-                        rangeInfo = deserializer.Deserialize<RangeInfo>(namedRange.Comment);
-                    }
-                }
-                else
-                {
-                    // 名前付き範囲が存在しない場合、indexSheet の情報からアドレスを作成
                     string leftColumn = indexSheet.Cells[cell.Row, leftColumnAddress].Value.ToString();
                     string rightColumn = indexSheet.Cells[cell.Row, rightColumnAddress].Value.ToString();
                     int headerRow = (int)indexSheet.Cells[cell.Row, headerRowAddress].Value;
                     int topRow = headerRow + 1;
                     int bottomRow = (int)indexSheet.Cells[cell.Row, bottomRowAddress].Value;
+                    string address = $"{leftColumn}{topRow}:{rightColumn}{bottomRow}";
 
-                    address = $"{leftColumn}{topRow}:{rightColumn}{bottomRow}";
+                    sheetAddressInfo = new SheetAddressInfo
+                    {
+                        Address = address,
+                        Function = null,
+                        RangeInfo = null,
+                    };
                 }
 
                 // シート名が辞書に存在しない場合、新しいリストを作成
@@ -167,15 +195,35 @@ public class ExcelMergeTool : IExcelAddIn
                 }
 
                 // アドレスをリストに追加
-                var sheetAddressInfo = new SheetAddressInfo
-                {
-                    Address = address,
-                    Function = null,
-                    RangeInfo = rangeInfo
-                };
-
                 result[sheetName].Add(sheetAddressInfo);
             }
+        }
+
+        return result;
+    }
+
+    static IEnumerable<object> GetColumnWithOffset(Excel.Worksheet worksheet, string address, int columnOffset)
+    {
+        // 指定されたアドレスの範囲を取得
+        var range = worksheet.Range[address];
+
+        // 範囲の開始列を取得
+        int startColumn = range.Column;
+
+        // オフセット後の列番号を計算
+        int targetColumn = startColumn + columnOffset;
+
+        // 指定された範囲の行を基準にして、対象列を取得
+        var offsetColumn = worksheet.Range[worksheet.Cells[range.Row, targetColumn], worksheet.Cells[range.Row + range.Rows.Count - 1, targetColumn]];
+
+        // 2次元配列として範囲を取得
+        object[,] values = offsetColumn.Value2;
+
+        // 2次元配列をList<object>に変換
+        var result = new List<object>();
+        for (int i = 1; i <= values.GetLength(0); i++)
+        {
+            result.Add(values[i, 1]);
         }
 
         return result;
@@ -205,7 +253,7 @@ public class ExcelMergeTool : IExcelAddIn
         // 各セルの値を保持する辞書
         var cellValues = new Dictionary<Tuple<string, int, int>, List<string>>();
         var cellSources = new Dictionary<Tuple<string, int, int>, List<string>>();
-        var baseValuesDict = new Dictionary<Tuple<string, string>, object[,]>();
+        var baseValuesDict = new Dictionary<Tuple<string, string>, RangeData>();
 
         // ベースシートの値を収集
         foreach (var sheetName in sheetRanges.Keys)
@@ -217,8 +265,21 @@ public class ExcelMergeTool : IExcelAddIn
                 var rangeAddress = sheetRange.Address;
                 var baseRange = baseSheet.Range[rangeAddress];
                 var baseValues = baseRange.Value2 as object[,];
+                IEnumerable<object> idValues = null;
                 var key = Tuple.Create(sheetName, rangeAddress);
-                baseValuesDict[key] = baseValues;
+
+                if (sheetRange.RangeInfo != null && sheetRange.RangeInfo.IdColumnOffset.HasValue)
+                {
+                    idValues = GetColumnWithOffset(baseSheet, rangeAddress, sheetRange.RangeInfo.IdColumnOffset.Value);
+                }
+
+                var value = new RangeData
+                {
+                    Values = baseValues,
+                    IdValues = idValues,
+                };
+
+                baseValuesDict[key] = value;
             }
         }
 
@@ -238,10 +299,49 @@ public class ExcelMergeTool : IExcelAddIn
                 foreach (var sheetRange in sheetRanges[sheetName])
                 {
                     var rangeAddress = sheetRange.Address;
+                    var key = Tuple.Create(sheetName, rangeAddress);
+                    var baseValues = baseValuesDict[key].Values;
+                    var baseIdValues = baseValuesDict[key].IdValues;
+
+                    object[,] GetSortedMergeSheetValuesById()
+                    {
+                        if (baseIdValues != null)
+                        {
+                            return null;
+                        }
+                        SheetAddressInfo mergeSheetAddressInfo = GetSheetAddressInfo(mergeSheet);
+                        if (mergeSheetAddressInfo == null)
+                        {
+                            return null;
+                        }
+                        if (mergeSheetAddressInfo.RangeInfo == null)
+                        {
+                            return null;
+                        }
+                        var idColumnOffset = mergeSheetAddressInfo.RangeInfo.IdColumnOffset;
+                        if (idColumnOffset.HasValue)
+                        {
+
+                        }
+                        return null;
+                    }
+
+                    // baseSheet に ID が存在する場合、 mergeSheet の値も ID から検索する
+                    if (baseIdValues != null)
+                    {
+                        var mergeSheetAddressInfo = GetSheetAddressInfo(mergeSheet);
+                        if (mergeSheetAddressInfo != null)
+                        {
+                            // TODO: baseValues のコピーを作って、mergeValuesからidを基に上書きコピーする
+                            // TODO: idが見つからない行、ignoreColumn は何もしないので、baseのものが採用される
+                            var clonedArray = (object[,])baseValues.Clone();
+
+                        }
+                    }
+
                     var mergeRange = mergeSheet.Range[rangeAddress];
                     var mergeValues = mergeRange.Value2 as object[,];
-                    var key = Tuple.Create(sheetName, rangeAddress);
-                    var baseValues = baseValuesDict[key];
+
 
                     // 各セルの値を収集
                     for (int row = 1; row <= mergeValues.GetLength(0); row++)
@@ -284,7 +384,7 @@ public class ExcelMergeTool : IExcelAddIn
                 var rangeAddress = rangeTuple.Address;
                 var mergeFunc = rangeTuple.Function;
                 var baseRange = baseSheet.Range[rangeAddress];
-                var baseValues = baseValuesDict[Tuple.Create(sheetName, rangeAddress)];
+                var baseValues = baseValuesDict[Tuple.Create(sheetName, rangeAddress)].Values;
 
                 for (int row = 1; row <= baseValues.GetLength(0); row++)
                 {
