@@ -21,14 +21,14 @@ public class ExcelMergeTool : IExcelAddIn
     class RangeInfo
     {
         public int? IdColumnOffset { get; set; }
-        public IEnumerable<int> IgnoreColumnOffsets { get; set; }
+        public HashSet<int> IgnoreColumnOffsets { get; set; }
     }
 
     class RangeData
     {
         public object[,] Values { get; set; }
         public IEnumerable<object> IdValues { get; set; }
-        public IEnumerable<int> IgnoreColumnOffsets { get; set; }
+        public HashSet<int> IgnoreColumnOffsets { get; set; }
     }
 
     class SheetAddressInfo
@@ -229,6 +229,69 @@ public class ExcelMergeTool : IExcelAddIn
         return result;
     }
 
+    // idValues を key にした行（List<object>）の dictionary を作る
+    static Dictionary<string, List<object>> CreateRowDictionaryWithIDKeys(object[,] values, IEnumerable<object> idValues)
+    {
+        var dictionary = new Dictionary<string, List<object>>();
+        int rowIndex = 1;
+
+        foreach (var idValue in idValues)
+        {
+            if (idValue == null)
+            {
+                rowIndex++;
+                continue;
+            }
+
+            string id = idValue.ToString();
+            var rowValues = new List<object>();
+
+            for (int j = 1; j <= values.GetLength(1); j++)
+            {
+                rowValues.Add(values[rowIndex, j]);
+            }
+
+            dictionary[id] = rowValues;
+            rowIndex++;
+        }
+
+        return dictionary;
+    }
+
+    static object[,] CopyValuesById(object[,] baseValues, IEnumerable<object> baseIdValues, Dictionary<string, List<object>> valuesDictionary, HashSet<int> ignoreColumnOffsets)
+    {
+        object[,] result = (object[,])baseValues.Clone();
+
+        int rowIndex = 1; // 1-originのため、1から開始
+
+        foreach (var idValue in baseIdValues)
+        {
+            if (idValue == null)
+            {
+                rowIndex++;
+                continue;
+            }
+
+            string id = idValue.ToString();
+
+            if (valuesDictionary.TryGetValue(id, out var values))
+            {
+                int colIndex = 1; // 1-originに変換
+                foreach (var value in values)
+                {
+                    if (!ignoreColumnOffsets.Contains(colIndex - 1))
+                    {
+                        result[rowIndex, colIndex] = value;
+                    }
+                    colIndex++;
+                }
+            }
+            rowIndex++;
+        }
+
+        return result;
+    }
+
     public void MergeFiles(List<string> mergeFilePaths)
     {
         // 現在のアクティブなブックを取得
@@ -315,30 +378,34 @@ public class ExcelMergeTool : IExcelAddIn
                         {
                             return null;
                         }
-                        var idColumnOffset = rangeInfo.IdColumnOffset;
-                        if (!idColumnOffset.HasValue)
+                        if (!rangeInfo.IdColumnOffset.HasValue)
                         {
                             return null;
                         }
-                        return null;
+                        var idColumnOffset = rangeInfo.IdColumnOffset.Value;
+
+                        var mergeRangeAddress = mergeSheetAddressInfo.Address;
+                        var range = mergeSheet.Range[mergeRangeAddress];
+                        var values = range.Value2 as object[,];
+                        var idValues = GetColumnWithOffset(mergeSheet, mergeRangeAddress, idColumnOffset);
+
+                        // idValues を key にした行（List<object>）の dictionary を作る
+                        var valuesDictionary = CreateRowDictionaryWithIDKeys(values, idValues);
+
+                        // baseValues のコピーを作って、mergeValuesからidを基に上書きコピーする
+                        // idが見つからない行、ignoreColumn は何もしないので、baseのものが採用される
+                        var result = CopyValuesById(baseValues, baseIdValues, valuesDictionary, rangeInfo.IgnoreColumnOffsets);
+                        
+                        return result;
                     }
 
                     // baseSheet に ID が存在する場合、 mergeSheet の値も ID から検索する
-                    if (baseIdValues != null)
+                    var mergeValues = GetSortedMergeSheetValuesById();
+                    if (mergeValues == null)
                     {
-                        var mergeSheetAddressInfo = GetSheetAddressInfo(mergeSheet);
-                        if (mergeSheetAddressInfo != null)
-                        {
-                            // TODO: baseValues のコピーを作って、mergeValuesからidを基に上書きコピーする
-                            // TODO: idが見つからない行、ignoreColumn は何もしないので、baseのものが採用される
-                            var clonedArray = (object[,])baseValues.Clone();
-
-                        }
+                        var mergeRange = mergeSheet.Range[rangeAddress];
+                        mergeValues = mergeRange.Value2 as object[,];
                     }
-
-                    var mergeRange = mergeSheet.Range[rangeAddress];
-                    var mergeValues = mergeRange.Value2 as object[,];
-
 
                     // 各セルの値を収集
                     for (int row = 1; row <= mergeValues.GetLength(0); row++)
