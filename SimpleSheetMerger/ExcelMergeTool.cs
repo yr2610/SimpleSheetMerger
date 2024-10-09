@@ -202,6 +202,28 @@ public class ExcelMergeTool : IExcelAddIn
         return result;
     }
 
+    static object[,] GetValuesAs2DArray(object range)
+    {
+        if (range is object[,] array)
+        {
+            // 既に配列の場合はそのまま返す
+            return array;
+        }
+        else if (range is object singleValue)
+        {
+            // 1つのセルの場合、1-originのように見える2次元配列として返す
+            // 実際の配列のサイズは1x1
+            var result = Array.CreateInstance(typeof(object), new int[] { 1, 1 }, new int[] { 1, 1 });
+            result.SetValue(singleValue, 1, 1);
+            return (object[,])result;
+        }
+
+        // 何もない場合は空の1x1の2次元配列を返す
+        var emptyResult = Array.CreateInstance(typeof(object), new int[] { 1, 1 }, new int[] { 1, 1 });
+        emptyResult.SetValue(null, 1, 1);
+        return (object[,])emptyResult;
+    }
+
     static IEnumerable<object> GetColumnWithOffset(Excel.Worksheet worksheet, string address, int columnOffset)
     {
         // 指定されたアドレスの範囲を取得
@@ -217,7 +239,7 @@ public class ExcelMergeTool : IExcelAddIn
         var offsetColumn = worksheet.Range[worksheet.Cells[range.Row, targetColumn], worksheet.Cells[range.Row + range.Rows.Count - 1, targetColumn]];
 
         // 2次元配列として範囲を取得
-        object[,] values = offsetColumn.Value2;
+        var values = GetValuesAs2DArray(offsetColumn.Value2);
 
         // 2次元配列をList<object>に変換
         var result = new List<object>();
@@ -368,7 +390,7 @@ public class ExcelMergeTool : IExcelAddIn
 
                     object[,] GetSortedMergeSheetValuesById()
                     {
-                        if (baseIdValues != null)
+                        if (baseIdValues == null)
                         {
                             return null;
                         }
