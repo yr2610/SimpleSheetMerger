@@ -252,6 +252,7 @@ public class ExcelMergeTool : IExcelAddIn
     }
 
     // idValues を key にした行（List<object>）の dictionary を作る
+#if true
     static Dictionary<string, List<object>> CreateRowDictionaryWithIDKeys(object[,] values, IEnumerable<object> idValues)
     {
         var dictionary = new Dictionary<string, List<object>>();
@@ -279,6 +280,21 @@ public class ExcelMergeTool : IExcelAddIn
 
         return dictionary;
     }
+#else
+    // LINQ駆使した版
+    static Dictionary<string, List<object>> CreateRowDictionaryWithIDKeys(object[,] values, IEnumerable<object> idValues)
+    {
+        return idValues
+            .Zip(Enumerable.Range(1, values.GetLength(0)), (idValue, rowIndex) => (idValue, rowIndex))
+            .Where(pair => pair.idValue != null)
+            .ToDictionary(
+                pair => pair.idValue.ToString(),
+                pair => Enumerable.Range(1, values.GetLength(1))
+                    .Select(colIndex => values[pair.rowIndex, colIndex])
+                    .ToList()
+            );
+    }
+#endif
 
     static object[,] CopyValuesById(object[,] baseValues, IEnumerable<object> baseIdValues, Dictionary<string, List<object>> valuesDictionary, HashSet<int> ignoreColumnOffsets)
     {
