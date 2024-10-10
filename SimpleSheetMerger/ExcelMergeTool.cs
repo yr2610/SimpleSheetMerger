@@ -346,6 +346,10 @@ public class ExcelMergeTool : IExcelAddIn
             return;
         }
 
+        excelApp.ScreenUpdating = false;
+        excelApp.Calculation = Excel.XlCalculation.xlCalculationManual;
+        excelApp.EnableEvents = false;
+
         var sheetRanges = CollectSheetAddresses();
 
         // 各セルの値を保持する辞書
@@ -532,6 +536,11 @@ public class ExcelMergeTool : IExcelAddIn
         }
 
         baseWorkbook.Save();
+
+        excelApp.StatusBar = false;
+        excelApp.ScreenUpdating = true;
+        excelApp.Calculation = Excel.XlCalculation.xlCalculationAutomatic;
+        excelApp.EnableEvents = true;
 
         // 競合があった場合にウィンドウを表示
         if (conflictCells.Count > 0)
