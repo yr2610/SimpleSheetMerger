@@ -480,6 +480,13 @@ public class ExcelMergeTool : IExcelAddIn
         // 競合をチェックしてマージ
         foreach (var sheetName in sheetRanges.Keys)
         {
+            // sheetName が cellValues に存在しない場合はスキップ
+            var relevantKeys = cellValues.Keys.Where(key => key.Item1 == sheetName).ToList();
+            if (!relevantKeys.Any())
+            {
+                continue;
+            }
+
             var baseSheet = baseWorkbook.Sheets[sheetName];
 
             foreach (var rangeTuple in sheetRanges[sheetName])
@@ -489,45 +496,40 @@ public class ExcelMergeTool : IExcelAddIn
                 var baseRange = baseSheet.Range[rangeAddress];
                 var baseValues = baseValuesDict[Tuple.Create(sheetName, rangeAddress)].Values;
 
-                for (int row = 1; row <= baseValues.GetLength(0); row++)
+                foreach (var key in relevantKeys)
                 {
-                    for (int col = 1; col <= baseValues.GetLength(1); col++)
-                    {
-                        var baseValue = baseValues[row, col]?.ToString() ?? "";
-                        var key = Tuple.Create(sheetName, row, col);
+                    int row = key.Item2;
+                    int col = key.Item3;
+                    var baseValue = baseValues[row, col]?.ToString() ?? "";
+                    var values = cellValues[key];
 
-                        if (cellValues.ContainsKey(key))
+                    if (values.Count == 1)
+                    {
+                        baseValues[row, col] = values[0];
+                        continue;
+                    }
+
+                    var uniqueValues = new HashSet<string>(values);
+
+                    if (uniqueValues.Count == 1)
+                    {
+                        baseValues[row, col] = uniqueValues.First();
+                        continue;
+                    }
+
+                    if (mergeFunc != null)
+                    {
+                        var mergeResult = mergeFunc(baseValue, uniqueValues.ToArray());
+                        if (mergeResult.Item1)
                         {
-                            var values = cellValues[key];
-                            if (values.Count == 1)
-                            {
-                                baseValues[row, col] = values[0];
-                            }
-                            else if (values.Count > 1)
-                            {
-                                var uniqueValues = new HashSet<string>(values);
-                                if (uniqueValues.Count > 1)
-                                {
-                                    if (mergeFunc != null)
-                                    {
-                                        var mergeResult = mergeFunc(baseValue, values.ToArray());
-                                        if (mergeResult.Item1)
-                                        {
-                                            baseValues[row, col] = mergeResult.Item2;
-                                            continue;
-                                        }
-                                    }
-                                    // mergeFunc が null またはマージに失敗した場合
-                                    baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", cellSources[key]);
-                                    conflictCells.Add($"{sheetName}: {baseRange.Cells[row, col].Address}");
-                                }
-                                else
-                                {
-                                    baseValues[row, col] = values[0];
-                                }
-                            }
+                            baseValues[row, col] = mergeResult.Item2;
+                            continue;
                         }
                     }
+
+                    // mergeFunc が null またはマージに失敗した場合
+                    baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", cellSources[key]);
+                    conflictCells.Add($"{sheetName}: {baseRange.Cells[row, col].Address}");
                 }
 
                 // 変更をシートに反映
