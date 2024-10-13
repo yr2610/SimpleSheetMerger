@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using System.Reflection;
+using System.Diagnostics;
 using ExcelDna.Integration;
 using ExcelDna.Integration.CustomUI;
 using Excel = Microsoft.Office.Interop.Excel;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
-using System.Diagnostics;
 
 public class ExcelMergeTool : IExcelAddIn
 {
@@ -35,7 +36,7 @@ public class ExcelMergeTool : IExcelAddIn
     class SheetAddressInfo
     {
         public string Address { get; set; }
-        public Func<string, string[], Tuple<bool, string>> Function { get; set; }
+        public Func<object, object[], Tuple<bool, object>> Function { get; set; }
         public RangeInfo RangeInfo { get; set; }
     }
 
@@ -356,7 +357,7 @@ public class ExcelMergeTool : IExcelAddIn
         Stopwatch stopwatch = new Stopwatch();
         stopwatch.Start();
         // 各セルの値を保持する辞書
-        var cellValues = new Dictionary<Tuple<string, int, int>, List<string>>();
+        var cellValues = new Dictionary<Tuple<string, int, int>, List<object>>();
         var cellSources = new Dictionary<Tuple<string, int, int>, List<string>>();
         var baseValuesDict = new Dictionary<Tuple<string, string>, RangeData>();
 
@@ -463,7 +464,7 @@ public class ExcelMergeTool : IExcelAddIn
 
                                 if (!cellValues.ContainsKey(cellKey))
                                 {
-                                    cellValues[cellKey] = new List<string>();
+                                    cellValues[cellKey] = new List<object>();
                                     cellSources[cellKey] = new List<string>();
                                 }
 
@@ -512,7 +513,7 @@ public class ExcelMergeTool : IExcelAddIn
                         continue;
                     }
 
-                    var uniqueValues = new HashSet<string>(values);
+                    var uniqueValues = new HashSet<object>(values);
 
                     if (uniqueValues.Count == 1)
                     {
@@ -765,14 +766,15 @@ public class MyRibbon : ExcelRibbon
 {
     public override string GetCustomUI(string ribbonID)
     {
-        return @"
+        string projectName = Assembly.GetExecutingAssembly().GetName().Name;
+        return $@"
 <customUI xmlns='http://schemas.microsoft.com/office/2009/07/customui'>
   <ribbon>
     <tabs>
-      <tab id='customTab' label='マージツール'>
-        <group id='customGroup' label='操作'>
-          <button id='selectFilesButton' label='ファイル選択' onAction='OnSelectFilesButtonClick' />
-          <button id='mergeButton' label='マージ' onAction='OnMergeButtonClick' />
+      <tab id='customTab' label='{projectName}'>
+        <group id='customGroup' label='Merge'>
+          <button id='selectFilesButton' label='ファイル選択' size='large' imageMso='FileSave' onAction='OnSelectFilesButtonClick' />
+          <button id='mergeButton' label='Merge' size='large' imageMso='TableDrawTable' onAction='OnMergeButtonClick' />
         </group>
       </tab>
     </tabs>
