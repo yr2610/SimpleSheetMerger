@@ -358,9 +358,8 @@ public class ExcelMergeTool : IExcelAddIn
         Stopwatch stopwatch = new Stopwatch();
         stopwatch.Start();
         // 各セルの値を保持する辞書
-        var cellValues = new Dictionary<Tuple<string, int, int>, List<object>>();
-        var cellSources = new Dictionary<Tuple<string, int, int>, List<string>>();
         var baseValuesDict = new Dictionary<Tuple<string, string>, RangeData>();
+        var cellData = new Dictionary<Tuple<string, int, int>, List<(object value, int sourceFileIndex)>>();
 
         // ベースシートの値を収集
         foreach (var sheetName in sheetRanges.Keys)
@@ -393,6 +392,7 @@ public class ExcelMergeTool : IExcelAddIn
         foreach (var mergeFilePath in mergeFilePaths)
         {
             var mergeWorkbook = excelApp.Workbooks.Open(mergeFilePath);
+            int mergeFileIndex = mergeFilePaths.IndexOf(mergeFilePath);
 
             foreach (var sheetName in sheetRanges.Keys)
             {
@@ -463,17 +463,12 @@ public class ExcelMergeTool : IExcelAddIn
                             {
                                 var cellKey = Tuple.Create(sheetName, row, col);
 
-                                if (!cellValues.ContainsKey(cellKey))
+                                if (!cellData.ContainsKey(cellKey))
                                 {
-                                    cellValues[cellKey] = new List<object>();
-                                    cellSources[cellKey] = new List<string>();
+                                    cellData[cellKey] = new List<(object value, int sourceFileIndex)>();
                                 }
 
-                                if (!cellValues[cellKey].Contains(mergeValue))
-                                {
-                                    cellValues[cellKey].Add(mergeValue);
-                                    cellSources[cellKey].Add($"{mergeFilePaths.IndexOf(mergeFilePath) + 1}: {mergeValue}");
-                                }
+                                cellData[cellKey].Add((mergeValue, mergeFileIndex));
                             }
                         }
                     }
@@ -486,7 +481,7 @@ public class ExcelMergeTool : IExcelAddIn
         foreach (var sheetName in sheetRanges.Keys)
         {
             // sheetName が cellValues に存在しない場合はスキップ
-            var relevantKeys = cellValues.Keys.Where(key => key.Item1 == sheetName).ToList();
+            var relevantKeys = cellData.Keys.Where(key => key.Item1 == sheetName).ToList();
             if (!relevantKeys.Any())
             {
                 continue;
@@ -506,19 +501,19 @@ public class ExcelMergeTool : IExcelAddIn
                     int row = key.Item2;
                     int col = key.Item3;
                     var baseValue = baseValues[row, col]?.ToString() ?? "";
-                    var values = cellValues[key];
+                    var values = cellData[key];
 
                     if (values.Count == 1)
                     {
-                        baseValues[row, col] = values[0];
+                        baseValues[row, col] = values[0].value;
                         continue;
                     }
 
-                    var uniqueValues = new HashSet<object>(values);
+                    var uniqueValues = values.ToLookup(cell => cell.value, cell => cell.sourceFileIndex);
 
                     if (uniqueValues.Count == 1)
                     {
-                        baseValues[row, col] = uniqueValues.First();
+                        baseValues[row, col] = values[0].value;
                         continue;
                     }
 
@@ -532,8 +527,10 @@ public class ExcelMergeTool : IExcelAddIn
                         }
                     }
 
+                    var conflictedValues = uniqueValues.Select(cell => $"{cell.First() + 1}: {cell.Key}");
+
                     // mergeFunc が null またはマージに失敗した場合
-                    baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", cellSources[key]);
+                    baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", conflictedValues);
                     conflictCells.Add($"{sheetName}: {baseRange.Cells[row, col].Address}");
                 }
 
