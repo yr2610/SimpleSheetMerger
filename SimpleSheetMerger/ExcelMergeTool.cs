@@ -8,6 +8,7 @@ using ExcelDna.Integration.CustomUI;
 using Excel = Microsoft.Office.Interop.Excel;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using System.Diagnostics;
 
 public class ExcelMergeTool : IExcelAddIn
 {
@@ -352,6 +353,8 @@ public class ExcelMergeTool : IExcelAddIn
 
         var sheetRanges = CollectSheetAddresses();
 
+        Stopwatch stopwatch = new Stopwatch();
+        stopwatch.Start();
         // 各セルの値を保持する辞書
         var cellValues = new Dictionary<Tuple<string, int, int>, List<string>>();
         var cellSources = new Dictionary<Tuple<string, int, int>, List<string>>();
@@ -536,6 +539,8 @@ public class ExcelMergeTool : IExcelAddIn
                 baseRange.Value2 = baseValues;
             }
         }
+        stopwatch.Stop();
+        Console.Write($"実行時間: {stopwatch.ElapsedMilliseconds}ミリ秒");
 
         baseWorkbook.Save();
 
