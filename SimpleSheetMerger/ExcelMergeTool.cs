@@ -17,7 +17,7 @@ public class ExcelMergeTool : IExcelAddIn
     public static ExcelMergeTool Instance => _instance ?? (_instance = new ExcelMergeTool());
 
     private List<string> mergeFilePaths = new List<string>();
-    private List<string> conflictCells = new List<string>();
+    //private List<string> conflictCells = new List<string>();
     //private Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> sheetRanges = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
 
     class RangeInfo
@@ -352,6 +352,7 @@ public class ExcelMergeTool : IExcelAddIn
         excelApp.Calculation = Excel.XlCalculation.xlCalculationManual;
         excelApp.EnableEvents = false;
 
+        var conflictCells = new List<string>();
         var sheetRanges = CollectSheetAddresses();
 
         Stopwatch stopwatch = new Stopwatch();
@@ -553,12 +554,17 @@ public class ExcelMergeTool : IExcelAddIn
         // 競合があった場合にウィンドウを表示
         if (conflictCells.Count > 0)
         {
-            ShowConflictWindow();
+            ShowConflictWindow(conflictCells);
         }
     }
 
-    private void ShowConflictWindow()
+    private void ShowConflictWindow(IEnumerable<string> conflictCells)
     {
+        if (conflictCells.Count() == 0)
+        {
+            return;
+        }
+
         Form conflictForm = new Form
         {
             Text = "競合がありました",
