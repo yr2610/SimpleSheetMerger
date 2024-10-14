@@ -477,6 +477,8 @@ public class ExcelMergeTool : IExcelAddIn
             mergeWorkbook.Close(false);
         }
 
+        List<(string sheetName, int numCells)> mergedSheets = new List<(string sheetName, int numCells)>();
+
         // 競合をチェックしてマージ
         foreach (var sheetName in sheetRanges.Keys)
         {
@@ -486,6 +488,8 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 continue;
             }
+
+            mergedSheets.Add((sheetName: sheetName, numCells: relevantKeys.Count));
 
             var baseSheet = baseWorkbook.Sheets[sheetName];
 
@@ -553,6 +557,51 @@ public class ExcelMergeTool : IExcelAddIn
         {
             ShowConflictWindow(conflictCells);
         }
+
+        ShowResultWindow(mergedSheets);
+    }
+
+    private void ShowResultWindow(IEnumerable<(string sheetName, int numCells)> mergedSheets)
+    {
+        if (mergedSheets.Count() == 0)
+        {
+            MessageBox.Show("変更箇所はありませんでした");
+            return;
+        }
+
+        Form resultForm = new Form
+        {
+            Text = "以下のシートをマージしました",
+            Width = 400,
+            Height = 300,
+            TopMost = true // topmostに設定
+        };
+
+        ListBox mergedSheetListBox = new ListBox
+        {
+            Dock = DockStyle.Fill,
+            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
+        };
+
+        foreach (var cell in mergedSheets)
+        {
+            mergedSheetListBox.Items.Add($"{cell.sheetName}: {cell.numCells}");
+        }
+
+        mergedSheetListBox.DoubleClick += (sender, e) =>
+        {
+            if (mergedSheetListBox.SelectedItem != null)
+            {
+                var selectedCell = mergedSheets.ElementAtOrDefault(mergedSheetListBox.SelectedIndex);
+                var sheetName = selectedCell.sheetName;
+                var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+                var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
+                sheet.Activate();
+            }
+        };
+
+        resultForm.Controls.Add(mergedSheetListBox);
+        resultForm.Show();
     }
 
     private void ShowConflictWindow(IEnumerable<(string sheetName, string address)> conflictCells)
@@ -572,7 +621,8 @@ public class ExcelMergeTool : IExcelAddIn
 
         ListBox conflictListBox = new ListBox
         {
-            Dock = DockStyle.Fill
+            Dock = DockStyle.Fill,
+            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
         };
 
         foreach (var cell in conflictCells)
