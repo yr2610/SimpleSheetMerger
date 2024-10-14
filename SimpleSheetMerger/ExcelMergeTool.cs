@@ -352,7 +352,7 @@ public class ExcelMergeTool : IExcelAddIn
         excelApp.Calculation = Excel.XlCalculation.xlCalculationManual;
         excelApp.EnableEvents = false;
 
-        var conflictCells = new List<string>();
+        var conflictCells = new List<(string sheetName, string address)>();
         var sheetRanges = CollectSheetAddresses();
 
         Stopwatch stopwatch = new Stopwatch();
@@ -531,7 +531,7 @@ public class ExcelMergeTool : IExcelAddIn
 
                     // mergeFunc が null またはマージに失敗した場合
                     baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", conflictedValues);
-                    conflictCells.Add($"{sheetName}: {baseRange.Cells[row, col].Address}");
+                    conflictCells.Add((sheetName, baseRange.Cells[row, col].Address(RowAbsolute: false, ColumnAbsolute: false)));
                 }
 
                 // 変更をシートに反映
@@ -555,7 +555,7 @@ public class ExcelMergeTool : IExcelAddIn
         }
     }
 
-    private void ShowConflictWindow(IEnumerable<string> conflictCells)
+    private void ShowConflictWindow(IEnumerable<(string sheetName, string address)> conflictCells)
     {
         if (conflictCells.Count() == 0)
         {
@@ -577,18 +577,16 @@ public class ExcelMergeTool : IExcelAddIn
 
         foreach (var cell in conflictCells)
         {
-            conflictListBox.Items.Add(cell);
+            conflictListBox.Items.Add($"{cell.sheetName}: {cell.address}");
         }
 
         conflictListBox.DoubleClick += (sender, e) =>
         {
             if (conflictListBox.SelectedItem != null)
             {
-                var selectedCell = conflictListBox.SelectedItem.ToString();
-                var parts = selectedCell.Split(':');
-                var sheetName = parts[0].Trim();
-                var cellAddress = parts[1].Trim();
-
+                var selectedCell = conflictCells.ElementAtOrDefault(conflictListBox.SelectedIndex);
+                var sheetName = selectedCell.sheetName;
+                var cellAddress = selectedCell.address;
                 var excelApp = (Excel.Application)ExcelDnaUtil.Application;
                 var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
                 var range = sheet.Range[cellAddress];
