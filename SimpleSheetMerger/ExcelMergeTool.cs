@@ -36,7 +36,7 @@ public class ExcelMergeTool : IExcelAddIn
     class SheetAddressInfo
     {
         public string Address { get; set; }
-        public Func<object, object[], Tuple<bool, object>> Function { get; set; }
+        public Func<object, object[], (bool merged, object value)> Function { get; set; }
         public RangeInfo RangeInfo { get; set; }
     }
 
@@ -359,7 +359,7 @@ public class ExcelMergeTool : IExcelAddIn
         stopwatch.Start();
         // 各セルの値を保持する辞書
         var baseValuesDict = new Dictionary<Tuple<string, string>, RangeData>();
-        var cellData = new Dictionary<Tuple<string, int, int>, List<(object value, int sourceFileIndex)>>();
+        var cellData = new Dictionary<(string sheetName, int row, int col), List<(object value, int sourceFileIndex)>>();
 
         // ベースシートの値を収集
         foreach (var sheetName in sheetRanges.Keys)
@@ -461,7 +461,7 @@ public class ExcelMergeTool : IExcelAddIn
 
                             if (mergeValue != baseValue)
                             {
-                                var cellKey = Tuple.Create(sheetName, row, col);
+                                var cellKey = (sheetName: sheetName, row: row, col: col);
 
                                 if (!cellData.ContainsKey(cellKey))
                                 {
@@ -481,7 +481,7 @@ public class ExcelMergeTool : IExcelAddIn
         foreach (var sheetName in sheetRanges.Keys)
         {
             // sheetName が cellValues に存在しない場合はスキップ
-            var relevantKeys = cellData.Keys.Where(key => key.Item1 == sheetName).ToList();
+            var relevantKeys = cellData.Keys.Where(key => key.sheetName == sheetName).ToList();
             if (!relevantKeys.Any())
             {
                 continue;
@@ -498,8 +498,8 @@ public class ExcelMergeTool : IExcelAddIn
 
                 foreach (var key in relevantKeys)
                 {
-                    int row = key.Item2;
-                    int col = key.Item3;
+                    int row = key.row;
+                    int col = key.col;
                     var baseValue = baseValues[row, col]?.ToString() ?? "";
                     var values = cellData[key];
 
@@ -520,9 +520,9 @@ public class ExcelMergeTool : IExcelAddIn
                     if (mergeFunc != null)
                     {
                         var mergeResult = mergeFunc(baseValue, uniqueValues.ToArray());
-                        if (mergeResult.Item1)
+                        if (mergeResult.merged)
                         {
-                            baseValues[row, col] = mergeResult.Item2;
+                            baseValues[row, col] = mergeResult.value;
                             continue;
                         }
                     }
