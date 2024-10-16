@@ -477,10 +477,24 @@ public class ExcelMergeTool : IExcelAddIn
             mergeWorkbook.Close(false);
         }
 
+        var sheetNames = cellData.Keys.Select(k => k.sheetName).Distinct();
+
+        excelApp.ScreenUpdating = true;
+        var selectedSheets = ShowMergeSheetSelection(sheetNames);
+        excelApp.ScreenUpdating = false;
+
+        if (selectedSheets.Count == 0)
+        {
+            MessageBox.Show("キャンセルされました");
+            return;
+        }
+
+        //cellData = FilterCellData(cellData, selectedSheets);
+
         List<(string sheetName, int numCells)> mergedSheets = new List<(string sheetName, int numCells)>();
 
         // 競合をチェックしてマージ
-        foreach (var sheetName in sheetRanges.Keys)
+        foreach (var sheetName in selectedSheets)
         {
             // sheetName が cellValues に存在しない場合はスキップ
             var relevantKeys = cellData.Keys.Where(key => key.sheetName == sheetName).ToList();
@@ -545,7 +559,10 @@ public class ExcelMergeTool : IExcelAddIn
         stopwatch.Stop();
         Console.Write($"実行時間: {stopwatch.ElapsedMilliseconds}ミリ秒");
 
-        baseWorkbook.Save();
+        if (mergedSheets.Count != 0)
+        {
+            //baseWorkbook.Save();
+        }
 
         excelApp.StatusBar = false;
         excelApp.ScreenUpdating = true;
@@ -561,6 +578,146 @@ public class ExcelMergeTool : IExcelAddIn
         ShowResultWindow(mergedSheets);
     }
 
+    private List<string> ShowMergeSheetSelection(IEnumerable<string> sheetNames)
+    {
+        List<string> selectedSheets = new List<string>();
+
+        Form selectionForm = new Form
+        {
+            Text = "マージ対象のシート選択", // タイトルを変更
+            Width = 800, // 初期幅を広めに設定
+            Height = 400,
+            TopMost = true
+        };
+
+        DataGridView gridView = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            AutoGenerateColumns = false,
+            AllowUserToAddRows = false, // 空の行が追加されないようにする
+            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // フォントサイズを大きく設定
+        };
+
+        // チェックボックス列を追加
+        var checkBoxColumn = new DataGridViewCheckBoxColumn
+        {
+            HeaderText = "選択",
+            Name = "Selected",
+            TrueValue = true,
+            FalseValue = false,
+            Width = 50
+        };
+        gridView.Columns.Add(checkBoxColumn);
+
+        // シート名列を追加
+        var sheetNameColumn = new DataGridViewTextBoxColumn
+        {
+            HeaderText = "シート名",
+            Name = "SheetName",
+            ReadOnly = true
+        };
+        gridView.Columns.Add(sheetNameColumn);
+
+        // データを追加
+        foreach (var sheetName in sheetNames)
+        {
+            gridView.Rows.Add(true, sheetName);
+        }
+
+        // 列幅とヘッダーの高さを自動調整
+        gridView.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
+        gridView.AutoResizeColumnHeadersHeight();
+        gridView.AutoResizeRows(DataGridViewAutoSizeRowsMode.AllCells);
+
+        // ボタンのフォントとサイズを設定
+        var buttonFont = new System.Drawing.Font("Microsoft Sans Serif", 14);
+        var buttonHeight = 50;
+
+        // 全選択/全解除ボタン
+        Button toggleButton = new Button
+        {
+            Text = "全選択/全解除",
+            Dock = DockStyle.Top,
+            Font = buttonFont,
+            Height = buttonHeight
+        };
+        toggleButton.Click += (sender, e) =>
+        {
+            bool allChecked = gridView.Rows.Cast<DataGridViewRow>().All(row => (bool)row.Cells["Selected"].Value);
+            foreach (DataGridViewRow row in gridView.Rows)
+            {
+                row.Cells["Selected"].Value = !allChecked;
+            }
+        };
+
+        // OKボタン
+        Button okButton = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            Dock = DockStyle.Bottom,
+            Font = buttonFont,
+            Height = buttonHeight
+        };
+
+        // キャンセルボタン
+        Button cancelButton = new Button
+        {
+            Text = "キャンセル",
+            DialogResult = DialogResult.Cancel,
+            Dock = DockStyle.Bottom,
+            Font = buttonFont,
+            Height = buttonHeight
+        };
+
+        // シート名をダブルクリックで表示
+        gridView.CellDoubleClick += (sender, e) =>
+        {
+            if (e.RowIndex >= 0)
+            {
+                var sheetName = gridView.Rows[e.RowIndex].Cells["SheetName"].Value.ToString();
+                var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+                var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
+                sheet.Activate();
+            }
+        };
+
+        selectionForm.Controls.Add(gridView);
+        selectionForm.Controls.Add(toggleButton);
+        selectionForm.Controls.Add(okButton);
+        selectionForm.Controls.Add(cancelButton);
+
+        // フォームのサイズを調整して全体が表示されるようにする
+        selectionForm.Load += (sender, e) =>
+        {
+            gridView.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells); // 列幅を自動調整
+            gridView.AutoResizeColumnHeadersHeight(); // ヘッダーの高さを自動調整
+            gridView.AutoResizeRows(DataGridViewAutoSizeRowsMode.AllCells); // 行の高さを自動調整
+            selectionForm.Width = gridView.PreferredSize.Width + 40; // 余白を考慮して調整
+        };
+
+        var result = selectionForm.ShowDialog();
+
+        if (result == DialogResult.OK)
+        {
+            selectedSheets = gridView.Rows.Cast<DataGridViewRow>()
+                .Where(row => (bool)row.Cells["Selected"].Value)
+                .Select(row => row.Cells["SheetName"].Value.ToString())
+                .ToList();
+        }
+
+        return selectedSheets;
+    }
+
+    private Dictionary<(string sheetName, int row, int col), List<(object value, int sourceFileIndex)>> FilterCellData(
+        Dictionary<(string sheetName, int row, int col), List<(object value, int sourceFileIndex)>> cellData,
+        List<string> selectedSheets)
+    {
+        return cellData
+            .Where(kvp => selectedSheets.Contains(kvp.Key.sheetName))
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+    }
+
     private void ShowResultWindow(IEnumerable<(string sheetName, int numCells)> mergedSheets)
     {
         if (mergedSheets.Count() == 0)
@@ -571,7 +728,7 @@ public class ExcelMergeTool : IExcelAddIn
 
         Form resultForm = new Form
         {
-            Text = "以下のシートをマージしました",
+            Text = "マージ完了",
             Width = 400,
             Height = 300,
             TopMost = true // topmostに設定
