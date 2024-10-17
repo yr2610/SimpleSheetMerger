@@ -787,7 +787,7 @@ public class ExcelMergeTool : IExcelAddIn
             conflictListBox.Items.Add($"{cell.sheetName}: {cell.address}");
         }
 
-        conflictListBox.DoubleClick += (sender, e) =>
+        conflictListBox.Click += (sender, e) =>
         {
             if (conflictListBox.SelectedItem != null)
             {
