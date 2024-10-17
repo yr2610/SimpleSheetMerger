@@ -584,7 +584,7 @@ public class ExcelMergeTool : IExcelAddIn
 
         Form selectionForm = new Form
         {
-            Text = "マージ対象のシート選択", // タイトルを変更
+            Text = "マージ対象のシート選択",
             Width = 800, // 初期幅を広めに設定
             Height = 400,
             TopMost = true
