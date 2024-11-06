@@ -761,6 +761,28 @@ public class ExcelMergeTool : IExcelAddIn
         resultForm.Show();
     }
 
+    public class ConflictResolver
+    {
+        public string SheetName { get; set; }
+        public string CellAddress { get; set; }
+        public string Base { get; set; }
+        public string[] Values { get; set; }
+        public string Merged { get; set; }
+        public bool Resolved { get; set; }
+    }
+
+    private void SelectExcelCell(string sheetName, string cellAddress)
+    {
+        var excelApp = (Microsoft.Office.Interop.Excel.Application)ExcelDnaUtil.Application;
+        var sheet = excelApp.Worksheets[sheetName];
+        var cell = sheet.Range[cellAddress];
+
+        sheet.Activate();
+        cell.Select();
+        excelApp.ActiveWindow.ScrollRow = cell.Row;
+        excelApp.ActiveWindow.ScrollColumn = cell.Column;
+    }
+
     private void ShowConflictWindow(IEnumerable<(string sheetName, string address)> conflictCells)
     {
         if (conflictCells.Count() == 0)
@@ -804,6 +826,146 @@ public class ExcelMergeTool : IExcelAddIn
 
         conflictForm.Controls.Add(conflictListBox);
         conflictForm.Show();
+
+        return;
+
+        DataGridView conflictDataGridView;
+        Button okButton;
+        Button cancelButton;
+
+        void SetupDataGridView()
+        {
+            conflictDataGridView = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AutoGenerateColumns = false,
+                Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
+            };
+
+            // Columns
+            DataGridViewCheckBoxColumn resolvedColumn = new DataGridViewCheckBoxColumn
+            {
+                DataPropertyName = "Resolved",
+                HeaderText = "Resolved",
+            };
+            conflictDataGridView.Columns.Add(resolvedColumn);
+
+            DataGridViewTextBoxColumn sheetNameColumn = new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "SheetName",
+                HeaderText = "Sheet Name",
+                ReadOnly = true,
+            };
+            conflictDataGridView.Columns.Add(sheetNameColumn);
+
+            DataGridViewTextBoxColumn cellAddressColumn = new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "CellAddress",
+                HeaderText = "Cell Address",
+                ReadOnly = true,
+            };
+            conflictDataGridView.Columns.Add(cellAddressColumn);
+
+            DataGridViewTextBoxColumn mergedColumn = new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "Merged",
+                HeaderText = "Merged",
+                ReadOnly = true,
+            };
+            conflictDataGridView.Columns.Add(mergedColumn);
+
+            DataGridViewTextBoxColumn baseColumn = new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "Base",
+                HeaderText = "Base",
+                ReadOnly = true,
+            };
+            conflictDataGridView.Columns.Add(baseColumn);
+
+            DataGridViewTextBoxColumn valuesColumn = new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "Values",
+                HeaderText = "Values",
+                ReadOnly = true,
+            };
+            conflictDataGridView.Columns.Add(valuesColumn);
+
+            // Event handlers
+            conflictDataGridView.CellClick += DataGridView_CellClick;
+            conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
+
+            conflictForm.Controls.Add(conflictDataGridView);
+        }
+        SetupDataGridView();
+
+        void SetupButtons()
+        {
+            okButton = new Button();
+            okButton.Text = "OK";
+            okButton.Enabled = false;
+            okButton.Click += OkButton_Click;
+            conflictForm.Controls.Add(okButton);
+
+            cancelButton = new Button();
+            cancelButton.Text = "Cancel";
+            cancelButton.Click += CancelButton_Click;
+            conflictForm.Controls.Add(cancelButton);
+        }
+        SetupButtons();
+
+        void DataGridView_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0)
+            {
+                DataGridView dataGridView = sender as DataGridView;
+                if (e.ColumnIndex == 4 || e.ColumnIndex == 5)
+                {
+                    string value = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value.ToString();
+                    dataGridView.Rows[e.RowIndex].Cells[3].Value = value;
+                }
+
+                string sheetName = dataGridView.Rows[e.RowIndex].Cells[1].Value.ToString();
+                string cellAddress = dataGridView.Rows[e.RowIndex].Cells[2].Value.ToString();
+                SelectExcelCell(sheetName, cellAddress);
+            }
+        }
+
+        void DataGridView_CellValueChanged(object sender, DataGridViewCellEventArgs e)
+        {
+            DataGridView dataGridView = sender as DataGridView;
+            bool allResolved = true;
+            foreach (DataGridViewRow row in dataGridView.Rows)
+            {
+                if (!(bool)row.Cells[0].Value)
+                {
+                    allResolved = false;
+                    break;
+                }
+            }
+            okButton.Enabled = allResolved;
+        }
+
+        void OkButton_Click(object sender, EventArgs e)
+        {
+            var excelApp = (Microsoft.Office.Interop.Excel.Application)ExcelDnaUtil.Application;
+
+            foreach (DataGridViewRow row in conflictDataGridView.Rows)
+            {
+                if (row.IsNewRow) continue;
+                var mergedValue = row.Cells["Merged"].Value.ToString();
+                var sheetName = row.Cells["SheetName"].Value.ToString(); // シート名を取得
+                var cellAddress = row.Cells["CellAddress"].Value.ToString(); // セルアドレスを取得
+                var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
+                var range = sheet.Range[cellAddress];
+                range.Value2 = mergedValue;
+            }
+
+            MessageBox.Show("競合が解決されました。");
+        }
+
+        void CancelButton_Click(object sender, EventArgs e)
+        {
+        }
     }
 
     private void ShowFileSelectionForm()
