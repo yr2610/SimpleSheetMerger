@@ -766,7 +766,7 @@ public class ExcelMergeTool : IExcelAddIn
         public string SheetName { get; set; }
         public string CellAddress { get; set; }
         public string Base { get; set; }
-        public string[] Values { get; set; }
+        public List<string> Values { get; set; }
         public string Merged { get; set; }
         public bool Resolved { get; set; }
     }
@@ -798,6 +798,7 @@ public class ExcelMergeTool : IExcelAddIn
             TopMost = true // topmostに設定
         };
 
+#if true
         ListBox conflictListBox = new ListBox
         {
             Dock = DockStyle.Fill,
@@ -828,6 +829,7 @@ public class ExcelMergeTool : IExcelAddIn
         conflictForm.Show();
 
         return;
+#endif
 
         DataGridView conflictDataGridView;
         Button okButton;
@@ -892,7 +894,7 @@ public class ExcelMergeTool : IExcelAddIn
 
             // Event handlers
             conflictDataGridView.CellClick += DataGridView_CellClick;
-            conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
+            //conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
 
             conflictForm.Controls.Add(conflictDataGridView);
         }
@@ -900,18 +902,25 @@ public class ExcelMergeTool : IExcelAddIn
 
         void SetupButtons()
         {
-            okButton = new Button();
-            okButton.Text = "OK";
-            okButton.Enabled = false;
+            okButton = new Button
+            {
+                Text = "OK",
+                Enabled = false,
+            };
             okButton.Click += OkButton_Click;
             conflictForm.Controls.Add(okButton);
 
-            cancelButton = new Button();
-            cancelButton.Text = "Cancel";
+            cancelButton = new Button()
+            {
+                Text = "Cancel",
+            };
             cancelButton.Click += CancelButton_Click;
             conflictForm.Controls.Add(cancelButton);
         }
         SetupButtons();
+
+        // XXX: okButton ボタンを参照しているので SetupButtons 呼び出しより後に
+        conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
 
         void DataGridView_CellClick(object sender, DataGridViewCellEventArgs e)
         {
@@ -933,39 +942,48 @@ public class ExcelMergeTool : IExcelAddIn
         void DataGridView_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
             DataGridView dataGridView = sender as DataGridView;
-            bool allResolved = true;
-            foreach (DataGridViewRow row in dataGridView.Rows)
+
+            if (e.ColumnIndex == 0)
             {
-                if (!(bool)row.Cells[0].Value)
+                bool allResolved = true;
+                foreach (DataGridViewRow row in dataGridView.Rows)
                 {
-                    allResolved = false;
-                    break;
+                    if (!(bool)row.Cells[0].Value)
+                    {
+                        allResolved = false;
+                        break;
+                    }
+                }
+                okButton.Enabled = allResolved;
+            }
+            else if (e.ColumnIndex == 3)
+            {
+                var row = dataGridView.Rows[e.RowIndex];
+                if (!row.IsNewRow)
+                {
+                    var excelApp = (Microsoft.Office.Interop.Excel.Application)ExcelDnaUtil.Application;
+                    var mergedValue = row.Cells["Merged"].Value.ToString();
+                    var sheetName = row.Cells["SheetName"].Value.ToString(); // シート名を取得
+                    var cellAddress = row.Cells["CellAddress"].Value.ToString(); // セルアドレスを取得
+                    var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
+                    var range = sheet.Range[cellAddress];
+                    range.Value2 = mergedValue;
                 }
             }
-            okButton.Enabled = allResolved;
+
         }
 
         void OkButton_Click(object sender, EventArgs e)
         {
-            var excelApp = (Microsoft.Office.Interop.Excel.Application)ExcelDnaUtil.Application;
-
-            foreach (DataGridViewRow row in conflictDataGridView.Rows)
-            {
-                if (row.IsNewRow) continue;
-                var mergedValue = row.Cells["Merged"].Value.ToString();
-                var sheetName = row.Cells["SheetName"].Value.ToString(); // シート名を取得
-                var cellAddress = row.Cells["CellAddress"].Value.ToString(); // セルアドレスを取得
-                var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
-                var range = sheet.Range[cellAddress];
-                range.Value2 = mergedValue;
-            }
-
             MessageBox.Show("競合が解決されました。");
         }
 
         void CancelButton_Click(object sender, EventArgs e)
         {
+            MessageBox.Show("マージをキャンセルするにはブックを保存せずに閉じてください。");
         }
+
+        conflictForm.Show();
     }
 
     private void ShowFileSelectionForm()
