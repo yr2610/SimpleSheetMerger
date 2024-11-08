@@ -338,6 +338,16 @@ public class ExcelMergeTool : IExcelAddIn
         public List<object> Values { get; set; }
         public object Merged { get; set; }
         public bool Resolved { get; set; }
+
+        // 動的プロパティを追加
+        public object Value1 { get { return Values.Count > 0 ? Values[0] : string.Empty; } }
+        public object Value2 { get { return Values.Count > 1 ? Values[1] : string.Empty; } }
+        public object Value3 { get { return Values.Count > 2 ? Values[2] : string.Empty; } }
+        public object Value4 { get { return Values.Count > 3 ? Values[3] : string.Empty; } }
+        public object Value5 { get { return Values.Count > 4 ? Values[4] : string.Empty; } }
+        public object Value6 { get { return Values.Count > 5 ? Values[5] : string.Empty; } }
+        public object Value7 { get { return Values.Count > 6 ? Values[6] : string.Empty; } }
+        public object Value8 { get { return Values.Count > 7 ? Values[7] : string.Empty; } }
     }
 
     public void MergeFiles(List<string> mergeFilePaths)
@@ -560,6 +570,20 @@ public class ExcelMergeTool : IExcelAddIn
 
                     // mergeFunc が null またはマージに失敗した場合
                     baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", conflictedValues);
+
+                    // 最大のインデックスを取得
+                    int maxIndex = uniqueValues.SelectMany(g => g).Max();
+
+                    // List<object> を初期化し、null で埋める
+                    List<object> resultList = Enumerable.Range(0, maxIndex + 1)
+                                                        .Select(i => (object)null)
+                                                        .ToList();
+
+                    // ILookup<object, int> を List<object> に変換
+                    uniqueValues.SelectMany(group => group.Select(index => new { group.Key, index }))
+                                .ToList()
+                                .ForEach(item => resultList[item.index] = item.Key);
+
                     var conflictInfo = new ConflictData
                     {
                         SheetName = sheetName,
@@ -567,12 +591,13 @@ public class ExcelMergeTool : IExcelAddIn
                         Base = baseValue,
                         Merged = null,
                         Resolved = false,
-                        Values = uniqueValues
-                        .SelectMany(group => group.Select((value, index) => new { Value = (object)value, Index = group.Key, GroupIndex = index }))
-                        .OrderBy(x => x.Index)
-                        .ThenBy(x => x.GroupIndex)
-                        .Select(x => x.Value)
-                        .ToList(),
+                        Values = resultList,
+                        //Values = uniqueValues
+                        //.SelectMany(group => group.Select((value, index) => new { Value = (object)value, Index = group.Key, GroupIndex = index }))
+                        //.OrderBy(x => x.Index)
+                        //.ThenBy(x => x.GroupIndex)
+                        //.Select(x => x.Value)
+                        //.ToList(),
                     };
                     conflictCells.Add(conflictInfo);
                 }
@@ -808,12 +833,12 @@ public class ExcelMergeTool : IExcelAddIn
         Form conflictForm = new Form
         {
             Text = "競合がありました",
-            Width = 400,
+            Width = 800,
             Height = 300,
             TopMost = true // topmostに設定
         };
 
-#if true
+#if false
         ListBox conflictListBox = new ListBox
         {
             Dock = DockStyle.Fill,
@@ -862,7 +887,7 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 Dock = DockStyle.Fill,
                 AutoGenerateColumns = false,
-                Font = new System.Drawing.Font("Microsoft Sans Serif", 14), // 文字を大きく設定
+                //Font = new System.Drawing.Font("Microsoft Sans Serif", 14), // 文字を大きく設定
                 AllowUserToAddRows = false,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells,
                 AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells,
@@ -872,6 +897,7 @@ public class ExcelMergeTool : IExcelAddIn
             DataGridViewCheckBoxColumn resolvedColumn = new DataGridViewCheckBoxColumn
             {
                 DataPropertyName = "Resolved",
+                Name = "Resolved",
                 HeaderText = "Resolved",
             };
             conflictDataGridView.Columns.Add(resolvedColumn);
@@ -879,6 +905,7 @@ public class ExcelMergeTool : IExcelAddIn
             DataGridViewTextBoxColumn sheetNameColumn = new DataGridViewTextBoxColumn
             {
                 DataPropertyName = "SheetName",
+                Name = "SheetName",
                 HeaderText = "Sheet Name",
                 ReadOnly = true,
             };
@@ -887,7 +914,8 @@ public class ExcelMergeTool : IExcelAddIn
             DataGridViewTextBoxColumn cellAddressColumn = new DataGridViewTextBoxColumn
             {
                 DataPropertyName = "CellAddress",
-                HeaderText = "Cell Address",
+                Name = "CellAddress",
+                HeaderText = "Address",
                 ReadOnly = true,
             };
             conflictDataGridView.Columns.Add(cellAddressColumn);
@@ -895,6 +923,7 @@ public class ExcelMergeTool : IExcelAddIn
             DataGridViewTextBoxColumn mergedColumn = new DataGridViewTextBoxColumn
             {
                 DataPropertyName = "Merged",
+                Name = "Merged",
                 HeaderText = "Merged",
             };
             conflictDataGridView.Columns.Add(mergedColumn);
@@ -902,6 +931,7 @@ public class ExcelMergeTool : IExcelAddIn
             DataGridViewTextBoxColumn baseColumn = new DataGridViewTextBoxColumn
             {
                 DataPropertyName = "Base",
+                Name = "Base",
                 HeaderText = "Base",
                 ReadOnly = true,
             };
@@ -912,6 +942,8 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 DataGridViewTextBoxColumn valuesColumn = new DataGridViewTextBoxColumn
                 {
+                    DataPropertyName = $"Value{i + 1}",
+                    Name = $"Value{i + 1}",
                     HeaderText = $"Value {i + 1}",
                     ReadOnly = true,
                 };
@@ -928,20 +960,20 @@ public class ExcelMergeTool : IExcelAddIn
             conflictDataGridView.DataSource = bindingList;
 
             // データバインディング後に値を設定
-            conflictDataGridView.DataBindingComplete += (s, e) =>
-            {
-                foreach (DataGridViewRow row in conflictDataGridView.Rows)
-                {
-                    var conflict = row.DataBoundItem as ConflictData;
-                    if (conflict != null)
-                    {
-                        for (int i = 0; i < maxValuesCount; i++)
-                        {
-                            //row.Cells[$"Value {i + 1}"].Value = i < conflict.Values.Count ? conflict.Values[i] : string.Empty;
-                        }
-                    }
-                }
-            };
+            //conflictDataGridView.DataBindingComplete += (s, e) =>
+            //{
+            //    foreach (DataGridViewRow row in conflictDataGridView.Rows)
+            //    {
+            //        var conflict = row.DataBoundItem as ConflictData;
+            //        if (conflict != null)
+            //        {
+            //            for (int i = 0; i < maxValuesCount; i++)
+            //            {
+            //                row.Cells[$"Value {i + 1}"].Value = i < conflict.Values.Count ? conflict.Values[i] : string.Empty;
+            //            }
+            //        }
+            //    }
+            //};
 
         }
         SetupDataGridView();
@@ -976,11 +1008,11 @@ public class ExcelMergeTool : IExcelAddIn
                 if (e.ColumnIndex == 4 || e.ColumnIndex >= 5)
                 {
                     string value = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value?.ToString();
-                    dataGridView.Rows[e.RowIndex].Cells[3].Value = value;
+                    dataGridView.Rows[e.RowIndex].Cells["Merged"].Value = value;
                 }
 
-                string sheetName = dataGridView.Rows[e.RowIndex].Cells[1].Value.ToString();
-                string cellAddress = dataGridView.Rows[e.RowIndex].Cells[2].Value.ToString();
+                string sheetName = dataGridView.Rows[e.RowIndex].Cells["SheetName"].Value.ToString();
+                string cellAddress = dataGridView.Rows[e.RowIndex].Cells["CellAddress"].Value.ToString();
                 SelectExcelCell(sheetName, cellAddress);
             }
         }
