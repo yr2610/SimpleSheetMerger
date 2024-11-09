@@ -921,8 +921,9 @@ public class ExcelMergeTool : IExcelAddIn
                 conflictDataGridView.Columns.Add(valuesColumn);
             }
 
+            // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
             // Event handlers
-            conflictDataGridView.CellClick += DataGridView_CellClick;
+            //conflictDataGridView.CellClick += DataGridView_CellClick;
             //conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
 
             conflictForm.Controls.Add(conflictDataGridView);
@@ -966,8 +967,19 @@ public class ExcelMergeTool : IExcelAddIn
         SetupDataGridView();
         SetupButtons();
 
-        // XXX: okButton ボタンを参照しているので SetupButtons 呼び出しより後に
+        // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
+        conflictDataGridView.CellClick += DataGridView_CellClick;
         conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
+
+        // checkbox がクリックで変化した時に即座にchangedイベントが呼ばれるために必要な処理
+        conflictDataGridView.CurrentCellDirtyStateChanged += (sender, e) =>
+        {
+            if (conflictDataGridView.CurrentCellAddress.X == 0 &&
+                conflictDataGridView.IsCurrentCellDirty)
+            {
+                conflictDataGridView.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            }
+        };
 
         // フォームのサイズを調整して全体が表示されるようにする
         conflictForm.Load += (sender, e) =>
@@ -976,6 +988,8 @@ public class ExcelMergeTool : IExcelAddIn
             conflictDataGridView.AutoResizeColumnHeadersHeight(); // ヘッダーの高さを自動調整
             conflictDataGridView.AutoResizeRows(DataGridViewAutoSizeRowsMode.AllCells); // 行の高さを自動調整
             conflictForm.Width = conflictDataGridView.PreferredSize.Width + 40; // 余白を考慮して調整
+
+            okButton.Enabled = IsAllResolved();
         };
 
         void DataGridView_CellClick(object sender, DataGridViewCellEventArgs e)
@@ -983,6 +997,7 @@ public class ExcelMergeTool : IExcelAddIn
             if (e.RowIndex >= 0)
             {
                 DataGridView dataGridView = sender as DataGridView;
+
                 if (e.ColumnIndex == 4 || e.ColumnIndex >= 5)
                 {
                     string value = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value?.ToString();
@@ -995,22 +1010,23 @@ public class ExcelMergeTool : IExcelAddIn
             }
         }
 
+        bool IsAllResolved()
+        {
+            return conflictDataGridView.Rows.Cast<DataGridViewRow>()
+                                    .All(row => (bool)row.Cells["Resolved"].Value);
+        }
+        //void UpdateOkButtonEnabled()
+        //{
+        //    okButton.Enabled = IsAllResolved();
+        //}
+
         void DataGridView_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
             DataGridView dataGridView = sender as DataGridView;
 
             if (e.ColumnIndex == 0)
             {
-                bool allResolved = true;
-                foreach (DataGridViewRow row in dataGridView.Rows)
-                {
-                    if (!(bool)row.Cells[0].Value)
-                    {
-                        allResolved = false;
-                        break;
-                    }
-                }
-                okButton.Enabled = allResolved;
+                okButton.Enabled = IsAllResolved();
             }
             else if (e.ColumnIndex == 3)
             {
