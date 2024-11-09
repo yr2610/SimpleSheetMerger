@@ -948,7 +948,6 @@ public class ExcelMergeTool : IExcelAddIn
             };
             okButton.Click += OkButton_Click;
             conflictForm.Controls.Add(okButton);
-            //buttonPanel.Controls.Add(okButton);
 
             // キャンセルボタン
             cancelButton = new Button
@@ -960,18 +959,8 @@ public class ExcelMergeTool : IExcelAddIn
                 Height = buttonHeight,
             };
 
-            // ボタンを配置するパネルを作成
-            //Panel buttonPanel = new Panel
-            //{
-            //    Dock = DockStyle.Bottom, // ボタンをフォームの下部に配置
-            //    //AutoSize = true,
-            //};
-
             cancelButton.Click += CancelButton_Click;
             conflictForm.Controls.Add(cancelButton);
-            //buttonPanel.Controls.Add(cancelButton);
-
-            //conflictForm.Controls.Add(buttonPanel);
         }
 
         SetupDataGridView();
