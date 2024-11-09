@@ -812,7 +812,7 @@ public class ExcelMergeTool : IExcelAddIn
         resultForm.Controls.Add(mergedSheetListBox);
         resultForm.ShowDialog();
 
-        MessageBox.Show("マージを確定するにはブックを保存してください。");
+        //MessageBox.Show("マージを確定するにはブックを保存してください。");
     }
 
     private void SelectExcelCell(string sheetName, string cellAddress)
