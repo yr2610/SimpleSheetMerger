@@ -500,15 +500,23 @@ public class ExcelMergeTool : IExcelAddIn
 
         var sheetNames = cellData.Keys.Select(k => k.sheetName).Distinct();
 
+        excelApp.StatusBar = false;
         excelApp.ScreenUpdating = true;
+        excelApp.Calculation = Excel.XlCalculation.xlCalculationAutomatic;
+        excelApp.EnableEvents = true;
+
         var selectedSheets = ShowMergeSheetSelection(sheetNames);
-        excelApp.ScreenUpdating = false;
 
         if (selectedSheets.Count == 0)
         {
             MessageBox.Show("キャンセルされました");
+
             return;
         }
+
+        excelApp.ScreenUpdating = false;
+        excelApp.Calculation = Excel.XlCalculation.xlCalculationManual;
+        excelApp.EnableEvents = false;
 
         //cellData = FilterCellData(cellData, selectedSheets);
 
@@ -592,12 +600,6 @@ public class ExcelMergeTool : IExcelAddIn
                         Merged = null,
                         Resolved = false,
                         Values = resultList,
-                        //Values = uniqueValues
-                        //.SelectMany(group => group.Select((value, index) => new { Value = (object)value, Index = group.Key, GroupIndex = index }))
-                        //.OrderBy(x => x.Index)
-                        //.ThenBy(x => x.GroupIndex)
-                        //.Select(x => x.Value)
-                        //.ToList(),
                     };
                     conflictCells.Add(conflictInfo);
                 }
@@ -808,7 +810,9 @@ public class ExcelMergeTool : IExcelAddIn
         };
 
         resultForm.Controls.Add(mergedSheetListBox);
-        resultForm.Show();
+        resultForm.ShowDialog();
+
+        MessageBox.Show("マージを確定するにはブックを保存してください。");
     }
 
     private void SelectExcelCell(string sheetName, string cellAddress)
@@ -837,39 +841,6 @@ public class ExcelMergeTool : IExcelAddIn
             Height = 300,
             TopMost = true // topmostに設定
         };
-
-#if false
-        ListBox conflictListBox = new ListBox
-        {
-            Dock = DockStyle.Fill,
-            Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
-        };
-
-        foreach (var cell in conflictData)
-        {
-            conflictListBox.Items.Add($"{cell.SheetName}: {cell.CellAddress}");
-        }
-
-        conflictListBox.Click += (sender, e) =>
-        {
-            if (conflictListBox.SelectedItem != null)
-            {
-                var selectedCell = conflictData.ElementAtOrDefault(conflictListBox.SelectedIndex);
-                var sheetName = selectedCell.SheetName;
-                var cellAddress = selectedCell.CellAddress;
-                var excelApp = (Excel.Application)ExcelDnaUtil.Application;
-                var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
-                var range = sheet.Range[cellAddress];
-                sheet.Activate();
-                range.Select();
-            }
-        };
-
-        conflictForm.Controls.Add(conflictListBox);
-        conflictForm.Show();
-
-        return;
-#endif
 
         // 最大要素数を取得
         int maxValuesCount = conflictData.Max(c => c.Values.Count);
@@ -915,7 +886,7 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 DataPropertyName = "CellAddress",
                 Name = "CellAddress",
-                HeaderText = "Address",
+                HeaderText = "Add",
                 ReadOnly = true,
             };
             conflictDataGridView.Columns.Add(cellAddressColumn);
@@ -958,47 +929,65 @@ public class ExcelMergeTool : IExcelAddIn
 
             // データソースを設定
             conflictDataGridView.DataSource = bindingList;
-
-            // データバインディング後に値を設定
-            //conflictDataGridView.DataBindingComplete += (s, e) =>
-            //{
-            //    foreach (DataGridViewRow row in conflictDataGridView.Rows)
-            //    {
-            //        var conflict = row.DataBoundItem as ConflictData;
-            //        if (conflict != null)
-            //        {
-            //            for (int i = 0; i < maxValuesCount; i++)
-            //            {
-            //                row.Cells[$"Value {i + 1}"].Value = i < conflict.Values.Count ? conflict.Values[i] : string.Empty;
-            //            }
-            //        }
-            //    }
-            //};
-
         }
-        SetupDataGridView();
 
         void SetupButtons()
         {
+            var buttonFont = new System.Drawing.Font("Microsoft Sans Serif", 14);
+            var buttonHeight = 50;
+
+            // OKボタン
             okButton = new Button
             {
                 Text = "OK",
+                DialogResult = DialogResult.OK,
+                Dock = DockStyle.Bottom,
+                Font = buttonFont,
+                Height = buttonHeight,
                 Enabled = false,
             };
             okButton.Click += OkButton_Click;
             conflictForm.Controls.Add(okButton);
+            //buttonPanel.Controls.Add(okButton);
 
-            cancelButton = new Button()
+            // キャンセルボタン
+            cancelButton = new Button
             {
-                Text = "Cancel",
+                Text = "キャンセル",
+                DialogResult = DialogResult.Cancel,
+                Dock = DockStyle.Bottom,
+                Font = buttonFont,
+                Height = buttonHeight,
             };
+
+            // ボタンを配置するパネルを作成
+            //Panel buttonPanel = new Panel
+            //{
+            //    Dock = DockStyle.Bottom, // ボタンをフォームの下部に配置
+            //    //AutoSize = true,
+            //};
+
             cancelButton.Click += CancelButton_Click;
             conflictForm.Controls.Add(cancelButton);
+            //buttonPanel.Controls.Add(cancelButton);
+
+            //conflictForm.Controls.Add(buttonPanel);
         }
+
+        SetupDataGridView();
         SetupButtons();
 
         // XXX: okButton ボタンを参照しているので SetupButtons 呼び出しより後に
         conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
+
+        // フォームのサイズを調整して全体が表示されるようにする
+        conflictForm.Load += (sender, e) =>
+        {
+            conflictDataGridView.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells); // 列幅を自動調整
+            conflictDataGridView.AutoResizeColumnHeadersHeight(); // ヘッダーの高さを自動調整
+            conflictDataGridView.AutoResizeRows(DataGridViewAutoSizeRowsMode.AllCells); // 行の高さを自動調整
+            conflictForm.Width = conflictDataGridView.PreferredSize.Width + 40; // 余白を考慮して調整
+        };
 
         void DataGridView_CellClick(object sender, DataGridViewCellEventArgs e)
         {
@@ -1061,7 +1050,7 @@ public class ExcelMergeTool : IExcelAddIn
             MessageBox.Show("マージをキャンセルするにはブックを保存せずに閉じてください。");
         }
 
-        conflictForm.Show();
+        conflictForm.ShowDialog();
     }
 
     private void ShowFileSelectionForm()
@@ -1071,7 +1060,7 @@ public class ExcelMergeTool : IExcelAddIn
 
         if (baseWorkbook == null)
         {
-            MessageBox.Show("先にブックを開いてください。");
+            MessageBox.Show("先にベースとなるブックを開いてください。");
             return;
         }
 
