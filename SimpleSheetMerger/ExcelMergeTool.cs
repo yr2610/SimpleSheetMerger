@@ -898,6 +898,7 @@ public class ExcelMergeTool : IExcelAddIn
                 HeaderText = "Merged",
             };
             conflictDataGridView.Columns.Add(mergedColumn);
+            conflictDataGridView.Columns["Merged"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
 
             DataGridViewTextBoxColumn baseColumn = new DataGridViewTextBoxColumn
             {
@@ -907,6 +908,7 @@ public class ExcelMergeTool : IExcelAddIn
                 ReadOnly = true,
             };
             conflictDataGridView.Columns.Add(baseColumn);
+            conflictDataGridView.Columns["Base"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
 
             // 動的列の追加
             for (int i = 0; i < maxValuesCount; i++)
@@ -919,6 +921,7 @@ public class ExcelMergeTool : IExcelAddIn
                     ReadOnly = true,
                 };
                 conflictDataGridView.Columns.Add(valuesColumn);
+                conflictDataGridView.Columns[$"Value{i + 1}"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             }
 
             // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
