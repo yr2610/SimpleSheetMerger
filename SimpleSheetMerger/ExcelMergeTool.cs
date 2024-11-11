@@ -624,7 +624,7 @@ public class ExcelMergeTool : IExcelAddIn
         // 競合があった場合にウィンドウを表示
         if (conflictCells.Count > 0)
         {
-            ShowConflictWindow(conflictCells);
+            ShowConflictWindow(conflictCells, mergeFilePaths);
         }
 
         ShowResultWindow(mergedSheets);
@@ -827,7 +827,7 @@ public class ExcelMergeTool : IExcelAddIn
         excelApp.ActiveWindow.ScrollColumn = cell.Column;
     }
 
-    private void ShowConflictWindow(List<ConflictData> conflictData)
+    private void ShowConflictWindow(List<ConflictData> conflictData, List<string> mergeFilePaths)
     {
         if (conflictData.Count() == 0)
         {
@@ -924,10 +924,12 @@ public class ExcelMergeTool : IExcelAddIn
                 conflictDataGridView.Columns[$"Value{i + 1}"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             }
 
-            // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
             // Event handlers
-            //conflictDataGridView.CellClick += DataGridView_CellClick;
+            conflictDataGridView.CellClick += DataGridView_CellClick;
+            // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
             //conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
+            conflictDataGridView.CellMouseEnter += DataGridView_CellMouseEnter;
+            //conflictDataGridView.CellMouseLeave += DataGridView_CellMouseLeave;
 
             conflictForm.Controls.Add(conflictDataGridView);
 
@@ -971,7 +973,6 @@ public class ExcelMergeTool : IExcelAddIn
         SetupButtons();
 
         // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
-        conflictDataGridView.CellClick += DataGridView_CellClick;
         conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
 
         // checkbox がクリックで変化した時に即座にchangedイベントが呼ばれるために必要な処理
@@ -1045,8 +1046,33 @@ public class ExcelMergeTool : IExcelAddIn
                     range.Value2 = mergedValue;
                 }
             }
-
         }
+
+        void DataGridView_CellMouseEnter(object sender, DataGridViewCellEventArgs e)
+        {
+            // ヘッダーセルが Value1, 2, 3... の場合のみ処理
+            if (e.RowIndex == -1 && e.ColumnIndex >= 5)
+            {
+                DataGridView dataGridView = sender as DataGridView;
+                DataGridViewColumnHeaderCell headerCell = dataGridView.Columns[e.ColumnIndex].HeaderCell;
+                var mergeFilePath = mergeFilePaths[e.ColumnIndex - 5];
+
+                // ツールチップに表示するテキストを設定
+                headerCell.ToolTipText = mergeFilePath;
+            }
+        }
+
+        //void DataGridView_CellMouseLeave(object sender, DataGridViewCellEventArgs e)
+        //{
+        //    if (e.RowIndex == -1 && e.ColumnIndex >= 5)
+        //    {
+        //        DataGridView dataGridView = sender as DataGridView;
+        //        DataGridViewColumnHeaderCell headerCell = dataGridView.Columns[e.ColumnIndex].HeaderCell;
+        //
+        //        // ツールチップをクリア
+        //        headerCell.ToolTipText = null;
+        //    }
+        //}
 
         void OkButton_Click(object sender, EventArgs e)
         {
