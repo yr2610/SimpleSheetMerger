@@ -917,7 +917,7 @@ public class ExcelMergeTool : IExcelAddIn
                 {
                     DataPropertyName = $"Value{i + 1}",
                     Name = $"Value{i + 1}",
-                    HeaderText = $"Value {i + 1}",
+                    HeaderText = $"File {i + 1}",
                     ReadOnly = true,
                 };
                 conflictDataGridView.Columns.Add(valuesColumn);
@@ -1038,7 +1038,7 @@ public class ExcelMergeTool : IExcelAddIn
                 if (!row.IsNewRow)
                 {
                     var excelApp = (Microsoft.Office.Interop.Excel.Application)ExcelDnaUtil.Application;
-                    var mergedValue = row.Cells["Merged"].Value.ToString();
+                    var mergedValue = row.Cells["Merged"].Value?.ToString();
                     var sheetName = row.Cells["SheetName"].Value.ToString(); // シート名を取得
                     var cellAddress = row.Cells["CellAddress"].Value.ToString(); // セルアドレスを取得
                     var sheet = (Excel.Worksheet)excelApp.Sheets[sheetName];
