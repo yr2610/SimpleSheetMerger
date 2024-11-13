@@ -582,9 +582,10 @@ public class ExcelMergeTool : IExcelAddIn
                     // 最大のインデックスを取得
                     int maxIndex = uniqueValues.SelectMany(g => g).Max();
 
-                    // List<object> を初期化し、null で埋める
+                    // List<object> を初期化し、特定の値で埋める
+                    // 存在しない要素を区別するため null ではなく DBNull.Value で初期化
                     List<object> resultList = Enumerable.Range(0, maxIndex + 1)
-                                                        .Select(i => (object)null)
+                                                        .Select(i => (object)DBNull.Value)
                                                         .ToList();
 
                     // ILookup<object, int> を List<object> に変換
@@ -924,6 +925,8 @@ public class ExcelMergeTool : IExcelAddIn
                 conflictDataGridView.Columns[$"Value{i + 1}"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
             }
 
+            conflictDataGridView.DefaultCellStyle.NullValue = string.Empty; // DBNull.Valueを空欄に表示
+
             // Event handlers
             conflictDataGridView.CellClick += DataGridView_CellClick;
             // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
@@ -931,10 +934,27 @@ public class ExcelMergeTool : IExcelAddIn
             conflictDataGridView.CellMouseEnter += DataGridView_CellMouseEnter;
             //conflictDataGridView.CellMouseLeave += DataGridView_CellMouseLeave;
 
+            conflictDataGridView.CellFormatting += (sender, e) =>
+            {
+                if (e.Value == DBNull.Value)
+                {
+                    e.CellStyle.BackColor = System.Drawing.Color.LightGray; // セルの背景色を変更
+                    //e.CellStyle.ForeColor = System.Drawing.Color.Red; // セルの文字色を変更（必要に応じて）
+                }
+            };
+
             conflictForm.Controls.Add(conflictDataGridView);
 
             // データソースを設定
             conflictDataGridView.DataSource = bindingList;
+
+            // 最初に列の幅と行の高さを自動調整
+            conflictDataGridView.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
+            conflictDataGridView.AutoResizeRows(DataGridViewAutoSizeRowsMode.AllCells);
+
+            // 自動調整を無効にする
+            conflictDataGridView.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+            conflictDataGridView.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
         }
 
         void SetupButtons()
@@ -1004,8 +1024,13 @@ public class ExcelMergeTool : IExcelAddIn
 
                 if (e.ColumnIndex == 4 || e.ColumnIndex >= 5)
                 {
-                    string value = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value?.ToString();
-                    dataGridView.Rows[e.RowIndex].Cells["Merged"].Value = value;
+                    object cellValue = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
+
+                    if (cellValue != DBNull.Value)
+                    {
+                        string value = cellValue?.ToString();
+                        dataGridView.Rows[e.RowIndex].Cells["Merged"].Value = value;
+                    }
                 }
 
                 string sheetName = dataGridView.Rows[e.RowIndex].Cells["SheetName"].Value.ToString();
