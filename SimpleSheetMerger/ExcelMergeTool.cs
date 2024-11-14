@@ -579,14 +579,11 @@ public class ExcelMergeTool : IExcelAddIn
                     // mergeFunc が null またはマージに失敗した場合
                     baseValues[row, col] = $"※競合※\nbase: {baseValue}\n" + string.Join("\n", conflictedValues);
 
-                    // 最大のインデックスを取得
-                    int maxIndex = uniqueValues.SelectMany(g => g).Max();
+                    int fileCount = mergeFilePaths.Count;
 
                     // List<object> を初期化し、特定の値で埋める
                     // 存在しない要素を区別するため null ではなく DBNull.Value で初期化
-                    List<object> resultList = Enumerable.Range(0, maxIndex + 1)
-                                                        .Select(i => (object)DBNull.Value)
-                                                        .ToList();
+                    List<object> resultList = Enumerable.Repeat((object)DBNull.Value, fileCount).ToList();
 
                     // ILookup<object, int> を List<object> に変換
                     uniqueValues.SelectMany(group => group.Select(index => new { group.Key, index }))
@@ -1022,13 +1019,12 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 DataGridView dataGridView = sender as DataGridView;
 
-                if (e.ColumnIndex == 4 || e.ColumnIndex >= 5)
+                if (e.ColumnIndex >= 5)
                 {
-                    object cellValue = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
+                    object value = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
 
-                    if (cellValue != DBNull.Value)
+                    if (value != DBNull.Value)
                     {
-                        string value = cellValue?.ToString();
                         dataGridView.Rows[e.RowIndex].Cells["Merged"].Value = value;
                     }
                 }
