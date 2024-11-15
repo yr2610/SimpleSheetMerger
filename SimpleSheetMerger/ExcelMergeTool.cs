@@ -944,6 +944,7 @@ public class ExcelMergeTool : IExcelAddIn
                     DataPropertyName = $"Value{i + 1}",
                     Name = $"Value{i + 1}",
                     HeaderText = $"File {i + 1}",
+                    ToolTipText = mergeFilePaths[i],
                     ReadOnly = true,
                 };
                 conflictDataGridView.Columns.Add(valuesColumn);
@@ -956,8 +957,6 @@ public class ExcelMergeTool : IExcelAddIn
             conflictDataGridView.CellClick += DataGridView_CellClick;
             // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
             //conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
-            conflictDataGridView.CellMouseEnter += DataGridView_CellMouseEnter;
-            //conflictDataGridView.CellMouseLeave += DataGridView_CellMouseLeave;
             conflictDataGridView.CellMouseDoubleClick += DataGridView_CellMouseDoubleClick;
 
             conflictDataGridView.CellFormatting += (sender, e) =>
@@ -1100,34 +1099,6 @@ public class ExcelMergeTool : IExcelAddIn
             }
         }
 
-        void DataGridView_CellMouseEnter(object sender, DataGridViewCellEventArgs e)
-        {
-            DataGridView dataGridView = sender as DataGridView;
-            var valueColumnIndex = dataGridView.Columns["Value1"].Index;
-
-            // ヘッダーセルが Value1, 2, 3... の場合のみ処理
-            if (e.RowIndex == -1 && e.ColumnIndex >= valueColumnIndex)
-            {
-                DataGridViewColumnHeaderCell headerCell = dataGridView.Columns[e.ColumnIndex].HeaderCell;
-                var mergeFilePath = mergeFilePaths[e.ColumnIndex - valueColumnIndex];
-
-                // ツールチップに表示するテキストを設定
-                headerCell.ToolTipText = mergeFilePath;
-            }
-        }
-
-        //void DataGridView_CellMouseLeave(object sender, DataGridViewCellEventArgs e)
-        //{
-        //    if (e.RowIndex == -1 && e.ColumnIndex >= 5)
-        //    {
-        //        DataGridView dataGridView = sender as DataGridView;
-        //        DataGridViewColumnHeaderCell headerCell = dataGridView.Columns[e.ColumnIndex].HeaderCell;
-        //
-        //        // ツールチップをクリア
-        //        headerCell.ToolTipText = null;
-        //    }
-        //}
-
         void DataGridView_CellMouseDoubleClick(object sender, DataGridViewCellMouseEventArgs e)
         {
             DataGridView dataGridView = sender as DataGridView;
@@ -1136,34 +1107,30 @@ public class ExcelMergeTool : IExcelAddIn
             if (e.RowIndex >= 0 && e.ColumnIndex == mergeMethodColumnIndex)
             {
                 // ダブルクリックされたセルがComboBox列であるか確認
-                if (dataGridView.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn)
-                {
-                    var selectedValue = dataGridView[e.ColumnIndex, e.RowIndex].Value as MergeMethodType?;
-                    if (selectedValue != null)
-                    {
-                        // 選択された値に応じてメソッドを実行
-                        MergeValues(selectedValue.Value);
-                    }
-                }
+                Debug.Assert(dataGridView.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn);
+                var selectedValue = dataGridView[e.ColumnIndex, e.RowIndex].Value as MergeMethodType?;
+                Debug.Assert(selectedValue != null);
+                // 選択された値に応じてメソッドを実行
+                MergeValues(selectedValue.Value);
             }
         }
 
         // 選択された値に基づいてメソッドを実行するサンプルメソッド
-        void MergeValues(MergeMethodType selectedValue)
+        void MergeValues(MergeMethodType mergeMethodType)
         {
-            switch (selectedValue)
+            switch (mergeMethodType)
             {
                 case MergeMethodType.Concatenate:
-                    MessageBox.Show("Option 1のメソッドを実行しました");
+                    MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
                     break;
                 case MergeMethodType.AddDifferences:
-                    MessageBox.Show("Option 2のメソッドを実行しました");
+                    MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
                     break;
                 case MergeMethodType.CommaSeparated:
-                    MessageBox.Show("Option 3のメソッドを実行しました");
+                    MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
                     break;
                 default:
-                    MessageBox.Show("未定義のオプションが選択されました");
+                    MessageBox.Show("未定義のメソッドが選択されました");
                     break;
             }
         }
