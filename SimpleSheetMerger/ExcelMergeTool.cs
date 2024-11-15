@@ -330,6 +330,13 @@ public class ExcelMergeTool : IExcelAddIn
         return result;
     }
 
+    public enum MergeMethodType
+    {
+        Concatenate,
+        AddDifferences,
+        CommaSeparated,
+    }
+
     public class ConflictData
     {
         public string SheetName { get; set; }
@@ -338,6 +345,7 @@ public class ExcelMergeTool : IExcelAddIn
         public List<object> Values { get; set; }
         public object Merged { get; set; }
         public bool Resolved { get; set; }
+        public MergeMethodType MergeMethod { get; set; }
 
         // 動的プロパティを追加
         public object Value1 { get { return Values.Count > 0 ? Values[0] : string.Empty; } }
@@ -898,6 +906,26 @@ public class ExcelMergeTool : IExcelAddIn
             conflictDataGridView.Columns.Add(mergedColumn);
             conflictDataGridView.Columns["Merged"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
 
+            // DataGridViewにマージ方法列を追加
+            DataGridViewComboBoxColumn mergeMethodColumn = new DataGridViewComboBoxColumn
+            {
+                HeaderText = "Merge",
+                Name = "MergeMethod",
+                DataPropertyName = "MergeMethod",
+                ToolTipText = "ダブルクリックでマージ実行",
+            };
+            foreach (var method in Enum.GetValues(typeof(MergeMethodType)))
+            {
+                mergeMethodColumn.Items.Add(method);
+            }
+            conflictDataGridView.Columns.Add(mergeMethodColumn);
+
+            // 初期値を設定
+            foreach (DataGridViewRow row in conflictDataGridView.Rows)
+            {
+                row.Cells["MergeMethod"].Value = MergeMethodType.Concatenate;
+            }
+
             DataGridViewTextBoxColumn baseColumn = new DataGridViewTextBoxColumn
             {
                 DataPropertyName = "Base",
@@ -930,6 +958,7 @@ public class ExcelMergeTool : IExcelAddIn
             //conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
             conflictDataGridView.CellMouseEnter += DataGridView_CellMouseEnter;
             //conflictDataGridView.CellMouseLeave += DataGridView_CellMouseLeave;
+            conflictDataGridView.CellMouseDoubleClick += DataGridView_CellMouseDoubleClick;
 
             conflictDataGridView.CellFormatting += (sender, e) =>
             {
@@ -1018,8 +1047,9 @@ public class ExcelMergeTool : IExcelAddIn
             if (e.RowIndex >= 0)
             {
                 DataGridView dataGridView = sender as DataGridView;
+                var valueColumnIndex = dataGridView.Columns["Value1"].Index;
 
-                if (e.ColumnIndex >= 5)
+                if (e.ColumnIndex >= valueColumnIndex)
                 {
                     object value = dataGridView.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
 
@@ -1048,12 +1078,13 @@ public class ExcelMergeTool : IExcelAddIn
         void DataGridView_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
             DataGridView dataGridView = sender as DataGridView;
+            var mergedColumnIndex = dataGridView.Columns["Merged"].Index;
 
             if (e.ColumnIndex == 0)
             {
                 okButton.Enabled = IsAllResolved();
             }
-            else if (e.ColumnIndex == 3)
+            else if (e.ColumnIndex == mergedColumnIndex)
             {
                 var row = dataGridView.Rows[e.RowIndex];
                 if (!row.IsNewRow)
@@ -1071,12 +1102,14 @@ public class ExcelMergeTool : IExcelAddIn
 
         void DataGridView_CellMouseEnter(object sender, DataGridViewCellEventArgs e)
         {
+            DataGridView dataGridView = sender as DataGridView;
+            var valueColumnIndex = dataGridView.Columns["Value1"].Index;
+
             // ヘッダーセルが Value1, 2, 3... の場合のみ処理
-            if (e.RowIndex == -1 && e.ColumnIndex >= 5)
+            if (e.RowIndex == -1 && e.ColumnIndex >= valueColumnIndex)
             {
-                DataGridView dataGridView = sender as DataGridView;
                 DataGridViewColumnHeaderCell headerCell = dataGridView.Columns[e.ColumnIndex].HeaderCell;
-                var mergeFilePath = mergeFilePaths[e.ColumnIndex - 5];
+                var mergeFilePath = mergeFilePaths[e.ColumnIndex - valueColumnIndex];
 
                 // ツールチップに表示するテキストを設定
                 headerCell.ToolTipText = mergeFilePath;
@@ -1094,6 +1127,46 @@ public class ExcelMergeTool : IExcelAddIn
         //        headerCell.ToolTipText = null;
         //    }
         //}
+
+        void DataGridView_CellMouseDoubleClick(object sender, DataGridViewCellMouseEventArgs e)
+        {
+            DataGridView dataGridView = sender as DataGridView;
+            var mergeMethodColumnIndex = dataGridView.Columns["MergeMethod"].Index;
+
+            if (e.RowIndex >= 0 && e.ColumnIndex == mergeMethodColumnIndex)
+            {
+                // ダブルクリックされたセルがComboBox列であるか確認
+                if (dataGridView.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn)
+                {
+                    var selectedValue = dataGridView[e.ColumnIndex, e.RowIndex].Value as MergeMethodType?;
+                    if (selectedValue != null)
+                    {
+                        // 選択された値に応じてメソッドを実行
+                        MergeValues(selectedValue.Value);
+                    }
+                }
+            }
+        }
+
+        // 選択された値に基づいてメソッドを実行するサンプルメソッド
+        void MergeValues(MergeMethodType selectedValue)
+        {
+            switch (selectedValue)
+            {
+                case MergeMethodType.Concatenate:
+                    MessageBox.Show("Option 1のメソッドを実行しました");
+                    break;
+                case MergeMethodType.AddDifferences:
+                    MessageBox.Show("Option 2のメソッドを実行しました");
+                    break;
+                case MergeMethodType.CommaSeparated:
+                    MessageBox.Show("Option 3のメソッドを実行しました");
+                    break;
+                default:
+                    MessageBox.Show("未定義のオプションが選択されました");
+                    break;
+            }
+        }
 
         void OkButton_Click(object sender, EventArgs e)
         {
@@ -1135,7 +1208,7 @@ public class ExcelMergeTool : IExcelAddIn
 
         Button addButton = new Button
         {
-            Text = "追加",
+            Text = "リストに追加",
             Dock = DockStyle.Top,
             Height = 60,
             Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
@@ -1143,7 +1216,7 @@ public class ExcelMergeTool : IExcelAddIn
 
         Button removeButton = new Button
         {
-            Text = "削除",
+            Text = "リストから削除",
             Dock = DockStyle.Top,
             Height = 60,
             Font = new System.Drawing.Font("Microsoft Sans Serif", 14) // 文字を大きく設定
