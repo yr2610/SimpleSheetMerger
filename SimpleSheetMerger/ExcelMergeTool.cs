@@ -912,7 +912,6 @@ public class ExcelMergeTool : IExcelAddIn
                 HeaderText = "Merge",
                 Name = "MergeMethod",
                 DataPropertyName = "MergeMethod",
-                ToolTipText = "右クリックでマージ実行",
             };
             foreach (var method in Enum.GetValues(typeof(MergeMethodType)))
             {
@@ -957,6 +956,10 @@ public class ExcelMergeTool : IExcelAddIn
             conflictDataGridView.CellClick += DataGridView_CellClick;
             // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
             //conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
+
+            // EditingControlShowingイベントを追加してComboBoxのイベントを設定
+            conflictDataGridView.EditingControlShowing += DataGridView_EditingControlShowing;
+
             conflictDataGridView.CellMouseClick += DataGridView_CellMouseClick;
 
             conflictDataGridView.CellFormatting += (sender, e) =>
@@ -980,6 +983,9 @@ public class ExcelMergeTool : IExcelAddIn
             // 自動調整を無効にする
             conflictDataGridView.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
             conflictDataGridView.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+
+            // セル全体がクリックされた時に編集モードを開始しないようにする
+            conflictDataGridView.EditMode = DataGridViewEditMode.EditOnEnter;
         }
 
         void SetupButtons()
@@ -1101,12 +1107,6 @@ public class ExcelMergeTool : IExcelAddIn
 
         void DataGridView_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
-            // 右クリックが検出されたか確認
-            if (e.Button != MouseButtons.Right)
-            {
-                return;
-            }
-
             DataGridView dataGridView = sender as DataGridView;
             var mergeMethodColumnIndex = dataGridView.Columns["MergeMethod"].Index;
 
@@ -1114,12 +1114,69 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 // クリックされたセルがComboBox列であるか確認
                 Debug.Assert(dataGridView.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn);
-                var selectedValue = dataGridView[e.ColumnIndex, e.RowIndex].Value as MergeMethodType?;
-                Debug.Assert(selectedValue != null);
-                // 選択された値に応じてメソッドを実行
 
-                var merged = MergeValues(selectedValue.Value, conflictData[e.RowIndex]);
-                dataGridView.Rows[e.RowIndex].Cells["Merged"].Value = merged;
+                // セルの位置を取得
+                var cellRect = dataGridView.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false);
+
+                // ボタン部分の領域を定義（右端の30ピクセル）
+                var buttonRect = new System.Drawing.Rectangle(cellRect.Width - 30, 0, 30, cellRect.Height);
+
+                // 右端のボタン部分がクリックされた場合のみ編集モードを開始
+                if (buttonRect.Contains(e.Location))
+                {
+                    dataGridView.BeginEdit(true);
+                    var editingControl = dataGridView.EditingControl as ComboBox;
+                    if (dataGridView.EditingControl is ComboBox comboBox)
+                    {
+                        comboBox.DroppedDown = true;
+                    }
+                }
+                else
+                {
+                    // 右端のボタン部分以外がクリックされた場合
+                    var selectedValue = dataGridView[e.ColumnIndex, e.RowIndex].Value as MergeMethodType?;
+                    Debug.Assert(selectedValue != null);
+
+                    // 選択された値に応じてメソッドを実行
+                    var merged = MergeValues(selectedValue.Value, conflictData[e.RowIndex]);
+                    dataGridView.Rows[e.RowIndex].Cells["Merged"].Value = merged;
+                }
+            }
+        }
+
+        void DataGridView_EditingControlShowing(object sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            DataGridView dataGridView = sender as DataGridView;
+
+            if (dataGridView.CurrentCell.ColumnIndex == dataGridView.Columns["MergeMethod"].Index)
+            {
+                if (e.Control is ComboBox comboBox)
+                {
+                    // DropDownClosedイベントの追加
+                    comboBox.DropDownClosed -= ComboBox_DropDownClosed;
+                    comboBox.DropDownClosed += ComboBox_DropDownClosed;
+                }
+            }
+        }
+
+        void ComboBox_DropDownClosed(object sender, EventArgs e)
+        {
+            if (sender is ComboBox comboBox && comboBox is IDataGridViewEditingControl editingControl)
+            {
+                // DataGridViewのCurrentCellを取得
+                DataGridView dataGridView = editingControl.EditingControlDataGridView;
+                if (dataGridView != null && dataGridView.CurrentCell != null)
+                {
+                    // 選択された値を取得
+                    string selectedValue = comboBox.SelectedItem?.ToString();
+
+                    // 選択が確定されたときの処理
+                    if (!string.IsNullOrEmpty(selectedValue))
+                    {
+                        // 現在のセルの値を更新
+                        dataGridView.CurrentCell.Value = selectedValue;
+                    }
+                }
             }
         }
 
