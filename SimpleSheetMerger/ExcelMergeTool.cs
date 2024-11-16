@@ -912,7 +912,7 @@ public class ExcelMergeTool : IExcelAddIn
                 HeaderText = "Merge",
                 Name = "MergeMethod",
                 DataPropertyName = "MergeMethod",
-                ToolTipText = "ダブルクリックでマージ実行",
+                ToolTipText = "右クリックでマージ実行",
             };
             foreach (var method in Enum.GetValues(typeof(MergeMethodType)))
             {
@@ -957,7 +957,7 @@ public class ExcelMergeTool : IExcelAddIn
             conflictDataGridView.CellClick += DataGridView_CellClick;
             // okButton ボタンを参照しているので SetupButtons 呼び出しより後に
             //conflictDataGridView.CellValueChanged += DataGridView_CellValueChanged;
-            conflictDataGridView.CellMouseDoubleClick += DataGridView_CellMouseDoubleClick;
+            conflictDataGridView.CellMouseClick += DataGridView_CellMouseClick;
 
             conflictDataGridView.CellFormatting += (sender, e) =>
             {
@@ -1099,14 +1099,20 @@ public class ExcelMergeTool : IExcelAddIn
             }
         }
 
-        void DataGridView_CellMouseDoubleClick(object sender, DataGridViewCellMouseEventArgs e)
+        void DataGridView_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
+            // 右クリックが検出されたか確認
+            if (e.Button != MouseButtons.Right)
+            {
+                return;
+            }
+
             DataGridView dataGridView = sender as DataGridView;
             var mergeMethodColumnIndex = dataGridView.Columns["MergeMethod"].Index;
 
             if (e.RowIndex >= 0 && e.ColumnIndex == mergeMethodColumnIndex)
             {
-                // ダブルクリックされたセルがComboBox列であるか確認
+                // クリックされたセルがComboBox列であるか確認
                 Debug.Assert(dataGridView.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn);
                 var selectedValue = dataGridView[e.ColumnIndex, e.RowIndex].Value as MergeMethodType?;
                 Debug.Assert(selectedValue != null);
