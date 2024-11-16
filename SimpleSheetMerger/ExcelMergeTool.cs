@@ -1111,17 +1111,39 @@ public class ExcelMergeTool : IExcelAddIn
                 var selectedValue = dataGridView[e.ColumnIndex, e.RowIndex].Value as MergeMethodType?;
                 Debug.Assert(selectedValue != null);
                 // 選択された値に応じてメソッドを実行
-                MergeValues(selectedValue.Value);
+
+                var merged = MergeValues(selectedValue.Value, conflictData[e.RowIndex]);
+                dataGridView.Rows[e.RowIndex].Cells["Merged"].Value = merged;
             }
         }
 
-        // 選択された値に基づいてメソッドを実行するサンプルメソッド
-        void MergeValues(MergeMethodType mergeMethodType)
+        bool Merge_Concatenate(object baseValue, IEnumerable<object> mergeValues, out object result)
         {
+            var values = mergeValues.Where(value => value != DBNull.Value && !string.IsNullOrWhiteSpace(value?.ToString()));
+
+            if (!values.Any())
+            {
+                result = null;
+                return false;
+            }
+
+            result = string.Join(
+                    Environment.NewLine,
+                    values
+                        .Select(value => value.ToString())
+                );
+            return true;
+        }
+
+        // 選択された値に基づいてメソッドを実行するサンプルメソッド
+        object MergeValues(MergeMethodType mergeMethodType, ConflictData _conflictData)
+        {
+            string mergeFailedString = "※マージ失敗※";
+            object result;
             switch (mergeMethodType)
             {
                 case MergeMethodType.Concatenate:
-                    MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
+                    return Merge_Concatenate(_conflictData.Base, _conflictData.Values, out result) ? result : mergeFailedString;
                     break;
                 case MergeMethodType.AddDifferences:
                     MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
@@ -1133,6 +1155,7 @@ public class ExcelMergeTool : IExcelAddIn
                     MessageBox.Show("未定義のメソッドが選択されました");
                     break;
             }
+            return mergeFailedString;
         }
 
         void OkButton_Click(object sender, EventArgs e)
