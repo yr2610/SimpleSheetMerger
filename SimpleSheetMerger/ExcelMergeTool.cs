@@ -1049,9 +1049,10 @@ public class ExcelMergeTool : IExcelAddIn
 
         void DataGridView_CellClick(object sender, DataGridViewCellEventArgs e)
         {
+            DataGridView dataGridView = sender as DataGridView;
+
             if (e.RowIndex >= 0)
             {
-                DataGridView dataGridView = sender as DataGridView;
                 var valueColumnIndex = dataGridView.Columns["Value1"].Index;
 
                 if (e.ColumnIndex >= valueColumnIndex)
@@ -1067,6 +1068,50 @@ public class ExcelMergeTool : IExcelAddIn
                 string sheetName = dataGridView.Rows[e.RowIndex].Cells["SheetName"].Value.ToString();
                 string cellAddress = dataGridView.Rows[e.RowIndex].Cells["CellAddress"].Value.ToString();
                 SelectExcelCell(sheetName, cellAddress);
+            }
+            else if (e.RowIndex == -1)
+            {
+                // ヘッダーをクリックしたときは、選択されたセルに列に応じた処理を行う
+                // 特定の列の選択されたセルを取得
+                var selectedCellsInColumn = dataGridView.SelectedCells.Cast<DataGridViewCell>()
+                    .Where(cell => cell.ColumnIndex == e.ColumnIndex)
+                    .ToList();
+
+                // クリックされたセルも追加
+                //if (!selectedCellsInColumn.Contains(dataGridView[e.ColumnIndex, e.RowIndex]))
+                //{
+                //    selectedCellsInColumn.Add(dataGridView[e.ColumnIndex, e.RowIndex]);
+                //}
+
+                switch (dataGridView.Columns[e.ColumnIndex].Name)
+                {
+                    case "Resolved":
+                        {
+                            // チェックボックスの状態を判定
+                            bool allChecked = selectedCellsInColumn.All(cell => Convert.ToBoolean(cell.Value));
+
+                            // チェックの状態を反転
+                            foreach (var cell in selectedCellsInColumn)
+                            {
+                                cell.Value = !allChecked;
+                            }
+                        }
+                        break;
+                    case "MergeMethod":
+                        break;
+                    default:
+                        break;
+                }
+                if (e.ColumnIndex >= dataGridView.Columns["Value1"].Index)
+                {
+                    foreach (var cell in selectedCellsInColumn)
+                    {
+                        if (cell.Value != DBNull.Value)
+                        {
+                            dataGridView.Rows[cell.RowIndex].Cells["Merged"].Value = cell.Value;
+                        }
+                    }
+                }
             }
         }
 
