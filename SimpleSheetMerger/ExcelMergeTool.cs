@@ -1098,6 +1098,32 @@ public class ExcelMergeTool : IExcelAddIn
                         }
                         break;
                     case "MergeMethod":
+                        {
+                            if (selectedCellsInColumn.Count > 0)
+                            {
+                                // 一番上のセルの値を取得
+                                var topValue = selectedCellsInColumn.First().Value as MergeMethodType? ?? MergeMethodType.Concatenate;
+
+                                // すべての選択されたセルが同じ値かを判定
+                                bool allSameValue = selectedCellsInColumn.All(cell => cell.Value != null && cell.Value.Equals(topValue));
+
+                                if (allSameValue)
+                                {
+                                    // すべて同じなら次の値に切り替え
+                                    topValue = (MergeMethodType)(((int)topValue + 1) % Enum.GetValues(typeof(MergeMethodType)).Length);
+                                }
+
+                                // すべての選択されたセルに同じ値を設定
+                                foreach (var cell in selectedCellsInColumn)
+                                {
+                                    cell.Value = topValue;
+
+                                    // 選択された値に応じてメソッドを実行
+                                    var merged = MergeValues(topValue, conflictData[cell.RowIndex]);
+                                    dataGridView.Rows[cell.RowIndex].Cells["Merged"].Value = merged;
+                                }
+                            }
+                        }
                         break;
                     default:
                         break;
@@ -1252,12 +1278,12 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 case MergeMethodType.Concatenate:
                     return Merge_Concatenate(_conflictData.Base, _conflictData.Values, out result) ? result : mergeFailedString;
-                    break;
+                    //break;
                 case MergeMethodType.AddDifferences:
-                    MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
+                    //MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
                     break;
                 case MergeMethodType.CommaSeparated:
-                    MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
+                    //MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
                     break;
                 default:
                     MessageBox.Show("未定義のメソッドが選択されました");
