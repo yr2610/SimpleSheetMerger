@@ -1261,11 +1261,47 @@ public class ExcelMergeTool : IExcelAddIn
                 return false;
             }
 
+            // 重複を取り除く
+            values = values.Distinct();
+
             result = string.Join(
                     Environment.NewLine,
                     values
                         .Select(value => value.ToString())
                 );
+            return true;
+        }
+
+        bool Merge_AddDifferences(object baseValue, IEnumerable<object> mergeValues, out object result)
+        {
+            var values = mergeValues.Where(value => value != DBNull.Value && value != null);
+
+            if (!values.Any())
+            {
+                result = null;
+                return false;
+            }
+
+            double doubleBaseValue;
+            if (!TryConvertToDouble(baseValue, out doubleBaseValue))
+            {
+                result = null;
+                return false;
+            }
+
+            List<double> doubleValues = new List<double>();
+            foreach (var value in values)
+            {
+                double doubleValue;
+                if (!TryConvertToDouble(value, out doubleValue))
+                {
+                    result = null;
+                    return false;
+                }
+                doubleValues.Add(doubleValue);
+            }
+            // base + sum(doubleValue - base)
+            result = doubleValues.Sum() + doubleBaseValue * (1 - doubleValues.Count);
             return true;
         }
 
@@ -1278,13 +1314,10 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 case MergeMethodType.Concatenate:
                     return Merge_Concatenate(_conflictData.Base, _conflictData.Values, out result) ? result : mergeFailedString;
-                    //break;
                 case MergeMethodType.AddDifferences:
-                    //MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
-                    break;
+                    return Merge_AddDifferences(_conflictData.Base, _conflictData.Values, out result) ? result : mergeFailedString;
                 case MergeMethodType.CommaSeparated:
-                    //MessageBox.Show($"{mergeMethodType.ToString()}を実行しました");
-                    break;
+                    return "※マージ関数未実装※";
                 default:
                     MessageBox.Show("未定義のメソッドが選択されました");
                     break;
@@ -1303,6 +1336,35 @@ public class ExcelMergeTool : IExcelAddIn
         }
 
         conflictForm.ShowDialog();
+    }
+
+    static bool TryConvertToDouble(object baseValue, out double result)
+    {
+        if (baseValue == null)
+        {
+            result = 0.0;
+            return true;
+        }
+        else if (baseValue is double doubleValue)
+        {
+            result = doubleValue;
+            return true;
+        }
+        else if (baseValue is string strValue && double.TryParse(strValue, out doubleValue))
+        {
+            result = doubleValue;
+            return true;
+        }
+        else if (double.TryParse(baseValue.ToString(), out doubleValue))
+        {
+            result = doubleValue;
+            return true;
+        }
+        else
+        {
+            result = 0.0;
+            return false;
+        }
     }
 
     private void ShowFileSelectionForm()
