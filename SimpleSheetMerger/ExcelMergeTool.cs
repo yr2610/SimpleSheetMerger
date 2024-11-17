@@ -1317,7 +1317,7 @@ public class ExcelMergeTool : IExcelAddIn
                 case MergeMethodType.AddDifferences:
                     return Merge_AddDifferences(_conflictData.Base, _conflictData.Values, out result) ? result : mergeFailedString;
                 case MergeMethodType.CommaSeparated:
-                    return "※マージ関数未実装※";
+                    return "※マージ処理未実装※";
                 default:
                     MessageBox.Show("未定義のメソッドが選択されました");
                     break;
@@ -1340,7 +1340,7 @@ public class ExcelMergeTool : IExcelAddIn
 
     static bool TryConvertToDouble(object baseValue, out double result)
     {
-        if (baseValue == null)
+        if (string.IsNullOrWhiteSpace(baseValue?.ToString()))
         {
             result = 0.0;
             return true;
@@ -1350,12 +1350,7 @@ public class ExcelMergeTool : IExcelAddIn
             result = doubleValue;
             return true;
         }
-        else if (baseValue is string strValue && double.TryParse(strValue, out doubleValue))
-        {
-            result = doubleValue;
-            return true;
-        }
-        else if (double.TryParse(baseValue.ToString(), out doubleValue))
+        else if (double.TryParse(baseValue?.ToString(), out doubleValue))
         {
             result = doubleValue;
             return true;
