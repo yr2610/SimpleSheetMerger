@@ -131,9 +131,11 @@ public class ExcelMergeTool : IExcelAddIn
         };
     }
 
-    static Dictionary<string, List<SheetAddressInfo>> CollectSheetAddresses()
+    const string indexSheetNameCustomPropertyName = "IndexSheetName";
+
+    static Dictionary<string, List<SheetAddressInfo>> CollectSheetAddresses(Excel.Workbook workbook)
     {
-        const string indexSheetName = "index"; // シート名
+        string indexSheetName = workbook.GetCustomProperty(indexSheetNameCustomPropertyName);
         const string startCellAddress = "B16"; // 開始セルのアドレス
         const string endMarker = "END"; // 終端を示す文字列
         const string leftColumnAddress = "U"; // 左端の列のアドレス
@@ -144,8 +146,7 @@ public class ExcelMergeTool : IExcelAddIn
 
         var result = new Dictionary<string, List<SheetAddressInfo>>();
 
-        Excel.Application xlApp = (Excel.Application)ExcelDnaUtil.Application;
-        Excel.Worksheet indexSheet = xlApp.Worksheets[indexSheetName];
+        Excel.Worksheet indexSheet = workbook.Worksheets[indexSheetName];
         Excel.Range startCell = indexSheet.Range[startCellAddress];
         Excel.Range currentCell = startCell;
 
@@ -170,7 +171,7 @@ public class ExcelMergeTool : IExcelAddIn
                     continue;
                 }
 
-                Excel.Worksheet sheet = xlApp.Worksheets[sheetName];
+                Excel.Worksheet sheet = workbook.Worksheets[sheetName];
                 var sheetAddressInfo = GetSheetAddressInfo(sheet);
 
                 // 名前付き範囲が存在しない場合、indexSheet の情報からアドレスを作成
@@ -382,7 +383,7 @@ public class ExcelMergeTool : IExcelAddIn
         excelApp.EnableEvents = false;
 
         var conflictCells = new List<ConflictData>();
-        var sheetRanges = CollectSheetAddresses();
+        var sheetRanges = CollectSheetAddresses(baseWorkbook);
 
         Stopwatch stopwatch = new Stopwatch();
         stopwatch.Start();
