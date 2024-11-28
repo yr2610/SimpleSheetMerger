@@ -335,4 +335,16 @@ public static class ExcelExtensions
         }
     }
 
+    public static double GetActiveSheetZoom(this Excel.Application excelApp)
+    {
+        Excel.Worksheet activeSheet = (Excel.Worksheet)excelApp.ActiveSheet;
+        return activeSheet.Application.ActiveWindow.Zoom;
+    }
+
+    public static void SetActiveSheetZoom(this Excel.Application excelApp, double zoomLevel)
+    {
+        Excel.Worksheet activeSheet = (Excel.Worksheet)excelApp.ActiveSheet;
+        activeSheet.Application.ActiveWindow.Zoom = zoomLevel;
+    }
+
 }
