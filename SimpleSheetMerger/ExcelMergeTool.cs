@@ -11,6 +11,7 @@ using ExcelDna.Integration.CustomUI;
 using Excel = Microsoft.Office.Interop.Excel;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using SimpleSheetMerger;
 
 public class ExcelMergeTool : IExcelAddIn
 {
@@ -51,6 +52,12 @@ public class ExcelMergeTool : IExcelAddIn
 
     public void DragDropFiles(object sender, DragEventArgs e)
     {
+        // 暫定認可のため、ドラッグ&ドロップ経由の操作でも必ず入口で拒否できるようにします。
+        if (!AuthorizationHelper.EnsureAuthorizedUser())
+        {
+            return;
+        }
+
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
@@ -65,12 +72,24 @@ public class ExcelMergeTool : IExcelAddIn
 
     public void OnMergeButtonClick(IRibbonControl control)
     {
+        // 暫定認可のため、リボンからの実行時点で処理を止められるようにします。
+        if (!AuthorizationHelper.EnsureAuthorizedUser())
+        {
+            return;
+        }
+
         // マージ処理を呼び出す
         MergeFiles(mergeFilePaths);
     }
 
     public void OnSelectFilesButtonClick(IRibbonControl control)
     {
+        // 暫定認可のため、リボンからの実行時点で処理を止められるようにします。
+        if (!AuthorizationHelper.EnsureAuthorizedUser())
+        {
+            return;
+        }
+
         // ファイル選択フォームを表示
         ShowFileSelectionForm();
     }
@@ -361,6 +380,12 @@ public class ExcelMergeTool : IExcelAddIn
 
     public void MergeFiles(List<string> mergeFilePaths)
     {
+        // UI 状態に依存せず処理経路自体を止めるため、実処理の入口でも再確認します。
+        if (!AuthorizationHelper.EnsureAuthorizedUser())
+        {
+            return;
+        }
+
         // 現在のアクティブなブックを取得
         var excelApp = (Excel.Application)ExcelDnaUtil.Application;
         var baseWorkbook = excelApp.ActiveWorkbook;
@@ -1365,6 +1390,12 @@ public class ExcelMergeTool : IExcelAddIn
 
     private void ShowFileSelectionForm()
     {
+        // 暫定認可のため、将来ほかの経路から呼ばれてもここで止められるようにします。
+        if (!AuthorizationHelper.EnsureAuthorizedUser())
+        {
+            return;
+        }
+
         var excelApp = (Excel.Application)ExcelDnaUtil.Application;
         var baseWorkbook = excelApp.ActiveWorkbook;
 
@@ -1512,6 +1543,12 @@ public class ExcelMergeTool : IExcelAddIn
 
     private void Form_DragDrop(object sender, DragEventArgs e)
     {
+        // 暫定認可のため、ファイル選択画面内のドラッグ&ドロップでも処理を止めます。
+        if (!AuthorizationHelper.EnsureAuthorizedUser())
+        {
+            return;
+        }
+
         var files = (string[])e.Data.GetData(DataFormats.FileDrop);
         var excelApp = (Excel.Application)ExcelDnaUtil.Application;
         var baseWorkbookPath = excelApp.ActiveWorkbook.FullName;

@@ -55,6 +55,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AuthorizationHelper.cs" />
     <Compile Include="ExcelExtensions.cs" />
     <Compile Include="ExcelMergeTool.cs" />
     <Compile Include="Merger.cs" />
