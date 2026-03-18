@@ -847,16 +847,182 @@ public class ExcelMergeTool : IExcelAddIn
         //MessageBox.Show("マージを確定するにはブックを保存してください。");
     }
 
+    private sealed class ExcelWindowDisplayState
+    {
+        public string ActiveSheetName { get; set; }
+        public string ActiveCellAddress { get; set; }
+        public int ScrollRow { get; set; }
+        public int ScrollColumn { get; set; }
+        public object Zoom { get; set; }
+    }
+
+    private ExcelWindowDisplayState CaptureExcelWindowDisplayState()
+    {
+        var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+        var window = excelApp.ActiveWindow;
+
+        if (window == null)
+        {
+            return null;
+        }
+
+        var state = new ExcelWindowDisplayState
+        {
+            ScrollRow = window.ScrollRow,
+            ScrollColumn = window.ScrollColumn,
+            Zoom = window.Zoom
+        };
+
+        var activeSheet = excelApp.ActiveSheet as Excel.Worksheet;
+        if (activeSheet != null)
+        {
+            state.ActiveSheetName = activeSheet.Name;
+        }
+
+        try
+        {
+            var activeCell = excelApp.ActiveCell as Excel.Range;
+            if (activeCell != null)
+            {
+                state.ActiveCellAddress = activeCell.get_Address(false, false, Excel.XlReferenceStyle.xlA1, Type.Missing, Type.Missing);
+            }
+        }
+        catch
+        {
+            state.ActiveCellAddress = null;
+        }
+
+        return state;
+    }
+
+    private void RestoreExcelWindowDisplayState(ExcelWindowDisplayState state)
+    {
+        if (state == null)
+        {
+            return;
+        }
+
+        var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+        var window = excelApp.ActiveWindow;
+
+        if (window == null)
+        {
+            return;
+        }
+
+        try
+        {
+            excelApp.ScreenUpdating = false;
+
+            if (!string.IsNullOrEmpty(state.ActiveSheetName))
+            {
+                var sheet = excelApp.Worksheets[state.ActiveSheetName] as Excel.Worksheet;
+                if (sheet != null)
+                {
+                    sheet.Activate();
+
+                    if (!string.IsNullOrEmpty(state.ActiveCellAddress))
+                    {
+                        var cell = sheet.Range[state.ActiveCellAddress];
+                        if (cell != null)
+                        {
+                            cell.Select();
+                        }
+                    }
+                }
+            }
+
+            window.Zoom = state.Zoom;
+            window.ScrollRow = Math.Max(1, state.ScrollRow);
+            window.ScrollColumn = Math.Max(1, state.ScrollColumn);
+        }
+        finally
+        {
+            excelApp.ScreenUpdating = true;
+        }
+    }
+
+    private void SetTemporaryConflictZoom(int zoomPercent)
+    {
+        var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+        var window = excelApp.ActiveWindow;
+
+        if (window == null)
+        {
+            return;
+        }
+
+        window.Zoom = zoomPercent;
+    }
+
     private void SelectExcelCell(string sheetName, string cellAddress)
     {
-        var excelApp = (Microsoft.Office.Interop.Excel.Application)ExcelDnaUtil.Application;
-        var sheet = excelApp.Worksheets[sheetName];
-        var cell = sheet.Range[cellAddress];
+        var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+        var window = excelApp.ActiveWindow;
+        var sheet = excelApp.Worksheets[sheetName] as Excel.Worksheet;
+        var cell = sheet != null ? sheet.Range[cellAddress] : null;
 
-        sheet.Activate();
-        cell.Select();
-        excelApp.ActiveWindow.ScrollRow = cell.Row;
-        excelApp.ActiveWindow.ScrollColumn = cell.Column;
+        if (window == null || sheet == null || cell == null)
+        {
+            return;
+        }
+
+        try
+        {
+            excelApp.ScreenUpdating = false;
+
+            sheet.Activate();
+
+            int visibleRows = 20;
+            int visibleColumns = 8;
+
+            try
+            {
+                Excel.Range visibleRange = window.VisibleRange;
+                if (visibleRange != null)
+                {
+                    visibleRows = Math.Max(visibleRange.Rows.Count, 1);
+                    visibleColumns = Math.Max(visibleRange.Columns.Count, 1);
+                }
+            }
+            catch
+            {
+                // VisibleRange取得に失敗した場合は既定値を使います。
+            }
+
+            // 完全中央ではなく、少し周辺が見える位置に寄せます。
+            int rowMargin = Math.Max(visibleRows / 3, 4);
+            int columnMargin = Math.Max(visibleColumns / 3, 2);
+
+            int targetScrollRow = Math.Max(1, cell.Row - rowMargin);
+            int targetScrollColumn = Math.Max(1, cell.Column - columnMargin);
+
+            window.ScrollRow = targetScrollRow;
+            window.ScrollColumn = targetScrollColumn;
+
+            cell.Select();
+        }
+        finally
+        {
+            excelApp.ScreenUpdating = true;
+        }
+    }
+
+    private void ScrollExcelWindow(int rowDelta, int columnDelta)
+    {
+        var excelApp = (Excel.Application)ExcelDnaUtil.Application;
+        var window = excelApp.ActiveWindow;
+
+        if (window == null)
+        {
+            return;
+        }
+
+        int nextRow = window.ScrollRow + rowDelta;
+        int nextColumn = window.ScrollColumn + columnDelta;
+
+        window.ScrollRow = Math.Max(1, nextRow);
+        window.ScrollColumn = Math.Max(1, nextColumn);
     }
 
     private void ShowConflictWindow(List<ConflictData> conflictData, List<string> mergeFilePaths)
@@ -865,6 +1031,8 @@ public class ExcelMergeTool : IExcelAddIn
         {
             return;
         }
+
+        var displayState = CaptureExcelWindowDisplayState();
 
         Form conflictForm = new Form
         {
@@ -883,6 +1051,7 @@ public class ExcelMergeTool : IExcelAddIn
         DataGridView conflictDataGridView;
         Button okButton;
         Button cancelButton;
+        FlowLayoutPanel scrollButtonPanel;
 
         void SetupDataGridView()
         {
@@ -1019,6 +1188,36 @@ public class ExcelMergeTool : IExcelAddIn
             var buttonFont = new System.Drawing.Font("Microsoft Sans Serif", 14);
             var buttonHeight = 50;
 
+            scrollButtonPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 36,
+                AutoSize = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(6, 4, 6, 4),
+                WrapContents = false,
+            };
+
+            Button CreateScrollButton(string text, EventHandler onClick)
+            {
+                var button = new Button
+                {
+                    Text = text,
+                    Width = 55,
+                    Height = 24,
+                    Margin = new Padding(2, 0, 2, 0),
+                };
+                button.Click += onClick;
+                return button;
+            }
+
+            // 微調整用のスクロールボタンを追加します。
+            scrollButtonPanel.Controls.Add(CreateScrollButton("↑", delegate { ScrollExcelWindow(-1, 0); }));
+            scrollButtonPanel.Controls.Add(CreateScrollButton("↓", delegate { ScrollExcelWindow(1, 0); }));
+            scrollButtonPanel.Controls.Add(CreateScrollButton("←", delegate { ScrollExcelWindow(0, -1); }));
+            scrollButtonPanel.Controls.Add(CreateScrollButton("→", delegate { ScrollExcelWindow(0, 1); }));
+            conflictForm.Controls.Add(scrollButtonPanel);
+
             // OKボタン
             okButton = new Button
             {
@@ -1065,12 +1264,19 @@ public class ExcelMergeTool : IExcelAddIn
         // フォームのサイズを調整して全体が表示されるようにする
         conflictForm.Load += (sender, e) =>
         {
+            SetTemporaryConflictZoom(85);
+
             conflictDataGridView.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells); // 列幅を自動調整
             conflictDataGridView.AutoResizeColumnHeadersHeight(); // ヘッダーの高さを自動調整
             conflictDataGridView.AutoResizeRows(DataGridViewAutoSizeRowsMode.AllCells); // 行の高さを自動調整
             conflictForm.Width = conflictDataGridView.PreferredSize.Width + 40; // 余白を考慮して調整
 
             okButton.Enabled = IsAllResolved();
+        };
+
+        conflictForm.FormClosed += (sender, e) =>
+        {
+            RestoreExcelWindowDisplayState(displayState);
         };
 
         void DataGridView_CellClick(object sender, DataGridViewCellEventArgs e)
