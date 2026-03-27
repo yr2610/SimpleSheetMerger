@@ -20,6 +20,8 @@ namespace SimpleSheetMerger
         private static readonly HashSet<string> AllowedUsers = new HashSet<string>(StringComparer.Ordinal)
         {
             // 例: @"DOMAIN\UserName",
+            @"LAPTOP-9S8RJR29\shinn",
+
         };
 
         /// <summary>

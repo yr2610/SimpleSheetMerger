@@ -19,7 +19,6 @@ public class ExcelMergeTool : IExcelAddIn
     public static ExcelMergeTool Instance => _instance ?? (_instance = new ExcelMergeTool());
 
     private List<string> mergeFilePaths = new List<string>();
-    private bool useValueForRead = false;
     //private List<string> conflictCells = new List<string>();
     //private Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>> sheetRanges = new Dictionary<string, List<Tuple<string, Func<string, string[], Tuple<bool, string>>>>>();
 
@@ -93,17 +92,6 @@ public class ExcelMergeTool : IExcelAddIn
 
         // ファイル選択フォームを表示
         ShowFileSelectionForm();
-    }
-
-    public bool UseValueForRead
-    {
-        get => useValueForRead;
-        set => useValueForRead = value;
-    }
-
-    object GetRangeReadValue(Excel.Range range)
-    {
-        return UseValueForRead ? range.Value : range.Value2;
     }
 
     static dynamic GetSheetIfExists(Excel.Workbook workbook, string sheetName)
@@ -274,7 +262,7 @@ public class ExcelMergeTool : IExcelAddIn
         var offsetColumn = worksheet.Range[worksheet.Cells[range.Row, targetColumn], worksheet.Cells[range.Row + range.Rows.Count - 1, targetColumn]];
 
         // 2次元配列として範囲を取得
-        var values = GetValuesAs2DArray(Instance.GetRangeReadValue(offsetColumn));
+        var values = GetValuesAs2DArray(offsetColumn.Value2);
 
         // 2次元配列をList<object>に変換
         var result = new List<object>();
@@ -437,7 +425,7 @@ public class ExcelMergeTool : IExcelAddIn
             {
                 var rangeAddress = sheetRange.Address;
                 var baseRange = baseSheet.Range[rangeAddress];
-                var baseValues = GetValuesAs2DArray(GetRangeReadValue(baseRange));
+                var baseValues = baseRange.Value2 as object[,];
                 IEnumerable<object> idValues = null;
                 var key = Tuple.Create(sheetName, rangeAddress);
 
@@ -497,7 +485,7 @@ public class ExcelMergeTool : IExcelAddIn
 
                         var mergeRangeAddress = mergeSheetAddressInfo.Address;
                         var range = mergeSheet.Range[mergeRangeAddress];
-                        var values = GetValuesAs2DArray(GetRangeReadValue(range));
+                        var values = range.Value2 as object[,];
                         var idValues = GetColumnWithOffset(mergeSheet, mergeRangeAddress, idColumnOffset);
 
                         // idValues を key にした行（List<object>）の dictionary を作る
@@ -515,7 +503,7 @@ public class ExcelMergeTool : IExcelAddIn
                     if (mergeValues == null)
                     {
                         var mergeRange = mergeSheet.Range[rangeAddress];
-                        mergeValues = GetValuesAs2DArray(GetRangeReadValue(mergeRange));
+                        mergeValues = mergeRange.Value2 as object[,];
                     }
 
                     // 各セルの値を収集
@@ -1795,7 +1783,6 @@ public class MyRibbon : ExcelRibbon
         <group id='customGroup' label='Merge'>
           <button id='selectFilesButton' label='ファイル選択' size='large' imageMso='FileSave' onAction='OnSelectFilesButtonClick' />
           <button id='mergeButton' label='Merge' size='large' imageMso='TableDrawTable' onAction='OnMergeButtonClick' />
-          <checkBox id='useValueReadCheckBox' label='値をValueで取得' onAction='OnUseValueReadCheckBoxAction' getPressed='GetUseValueReadCheckBoxPressed' />
         </group>
       </tab>
     </tabs>
@@ -1813,15 +1800,5 @@ public class MyRibbon : ExcelRibbon
     {
         // ファイル選択処理を呼び出す
         ExcelMergeTool.Instance.OnSelectFilesButtonClick(control);
-    }
-
-    public void OnUseValueReadCheckBoxAction(IRibbonControl control, bool pressed)
-    {
-        ExcelMergeTool.Instance.UseValueForRead = pressed;
-    }
-
-    public bool GetUseValueReadCheckBoxPressed(IRibbonControl control)
-    {
-        return ExcelMergeTool.Instance.UseValueForRead;
     }
 }
